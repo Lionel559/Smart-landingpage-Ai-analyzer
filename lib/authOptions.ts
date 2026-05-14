@@ -23,28 +23,33 @@ export const authOptions: NextAuthOptions = {
       },
 
       async authorize(credentials) {
-        const email = credentials?.email?.trim().toLowerCase();
-        const password = credentials?.password?.trim();
+        try {
+          const email = credentials?.email?.trim().toLowerCase();
+          const password = credentials?.password?.trim();
 
-        if (!email || !password) return null;
+          if (!email || !password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
+          const user = await prisma.user.findUnique({
+            where: { email },
+          });
 
-        if (!user || !user.password) return null;
+          if (!user || !user.password) return null;
 
-        const valid = await bcrypt.compare(password, user.password);
+          const valid = await bcrypt.compare(password, user.password);
 
-        if (!valid) return null;
+          if (!valid) return null;
 
-        return {
-          id: user.id,
-          name: user.name || "",
-          email: user.email,
-          image: user.image || "",
-          dbId: user.id,
-        } as any;
+          return {
+            id: user.id,
+            name: user.name || "",
+            email: user.email,
+            image: user.image || "",
+            dbId: user.id,
+          } as any;
+        } catch (error) {
+          console.log("AUTHORIZE ERROR:", error);
+          return null;
+        }
       },
     }),
   ],

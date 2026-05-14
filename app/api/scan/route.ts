@@ -3,7 +3,7 @@ import { scanWebsite } from "@/lib/scanner";
 import { getVisualScan } from "@/lib/visionScan";
 import { generateAIAudit } from "@/lib/aiAudit";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/[...nextauth]/route";
+import { authOptions } from "@/lib/authOptions";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
