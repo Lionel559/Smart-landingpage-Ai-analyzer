@@ -13,30 +13,19 @@ export async function GET() {
     const userId = (session?.user as any)?.id;
 
     if (!userId) {
-      return NextResponse.json([], { status: 200 });
+      return NextResponse.json([]);
     }
 
     const audits = await prisma.audit.findMany({
-      where: {
-        userId,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: 8,
+      where: { userId },
+      orderBy: { createdAt: "desc" },
     });
 
-    const normalized = audits.map((audit: any) => ({
-      ...audit,
-      consultantFindings: audit.consultantFindings || [],
-      quickWins: audit.quickWins || {},
-      visualLabels: audit.visualLabels || [],
-    }));
-
-    return NextResponse.json(normalized);
+    return NextResponse.json(audits);
   } catch (error) {
-    console.log("AUDITS GET ERROR:", error);
-    return NextResponse.json([], { status: 500 });
+    console.log("AUDITS API ERROR:", error);
+
+    return NextResponse.json([]);
   }
 }
 
