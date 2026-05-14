@@ -1,6 +1,4 @@
-export const dynamic = "force-dynamic";
-
-import NextAuth, { NextAuthOptions } from "next-auth";
+git add .import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
