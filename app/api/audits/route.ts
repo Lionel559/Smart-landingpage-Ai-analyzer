@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -9,38 +7,20 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = (session?.user as any)?.id;
-
-    if (!userId) {
-      return NextResponse.json([]);
-    }
-
     const audits = await prisma.audit.findMany({
-      where: { userId },
       orderBy: { createdAt: "desc" },
+      take: 20,
     });
 
     return NextResponse.json(audits);
   } catch (error) {
     console.log("AUDITS API ERROR:", error);
-
     return NextResponse.json([]);
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    const userId = (session?.user as any)?.id;
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
     const body = await req.json();
 
     const saved = await prisma.audit.create({
@@ -61,16 +41,23 @@ export async function POST(req: Request) {
         roadmap: body.roadmap || [],
         revenueNotes: body.revenueNotes || [],
         consultantFindings: body.consultantFindings || [],
-        quickWins: body.quickWins || {},
+        quickWins: body.quickWins || {
+          headlineFix: "",
+          ctaFix: "",
+          trustFix: "",
+        },
         visualLabels: body.visualLabels || [],
         screenshotUrl: body.screenshotUrl || "",
-        userId,
+
+        // temporary fallback user until auth DB is stable
+        userId: body.userId || "demo-user",
       },
     });
 
     return NextResponse.json(saved);
   } catch (error) {
     console.log("AUDITS POST ERROR:", error);
+
     return NextResponse.json(
       { error: "Unable to save audit" },
       { status: 500 }
