@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+async function getAuthUserId() {
+  const { getServerSession } = await import("next-auth");
+  const { authOptions } = await import("@/lib/authOptions");
+
+  const session = await getServerSession(authOptions);
+
+  return (session?.user as any)?.id || null;
+}
+
 export async function GET() {
   try {
+    const { prisma } = await import("@/lib/prisma");
+
+    const userId = await getAuthUserId();
+
+    if (!userId) {
+      return NextResponse.json([]);
+    }
+
     const audits = await prisma.audit.findMany({
+      where: { userId },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
@@ -21,6 +38,17 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const { prisma } = await import("@/lib/prisma");
+
+    const userId = await getAuthUserId();
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const saved = await prisma.audit.create({
@@ -48,9 +76,7 @@ export async function POST(req: Request) {
         },
         visualLabels: body.visualLabels || [],
         screenshotUrl: body.screenshotUrl || "",
-
-        // temporary fallback user until auth DB is stable
-        userId: body.userId || "demo-user",
+        userId,
       },
     });
 
