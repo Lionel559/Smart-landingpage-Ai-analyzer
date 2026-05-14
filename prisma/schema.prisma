@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String   @unique
+  password      String?
+  image         String?
+  provider      String?
+  plan          String   @default("free")
+  scansUsed     Int      @default(0)
+  planExpiresAt DateTime?
+  createdAt     DateTime @default(now())
+
+  audits        Audit[]
+}
+
+model Audit {
+  id                 String   @id @default(cuid())
+  siteUrl            String
+  seo                Int
+  ux                 Int
+  cta                Int
+  trust              Int
+  mobile             Int
+  health             Int
+  critical           Int
+  medium             Int
+  minor              Int
+  confidence         Int
+
+  findings           Json
+  summary            String
+  roadmap            Json
+  revenueNotes       Json
+
+  consultantFindings Json?
+  visualFlags        Json?
+  aiFixes            Json?
+  quickWins          Json?
+  visualLabels       Json?
+
+  screenshotUrl      String
+  createdAt          DateTime @default(now())
+
+  userId             String
+  user               User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
