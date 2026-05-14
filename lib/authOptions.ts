@@ -1,12 +1,8 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
+import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const revalidate = 0;
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -27,39 +23,28 @@ export const authOptions: NextAuthOptions = {
       },
 
       async authorize(credentials) {
-        try {
-          const email = credentials?.email?.trim().toLowerCase();
-          const password = credentials?.password?.trim();
+        const email = credentials?.email?.trim().toLowerCase();
+        const password = credentials?.password?.trim();
 
-          if (!email || !password) return null;
+        if (!email || !password) return null;
 
-          const user = await prisma.user.findUnique({
-            where: { email },
-          });
+        const user = await prisma.user.findUnique({
+          where: { email },
+        });
 
-          if (!user || !user.password) {
-            console.log("AUTH FAIL: user not found");
-            return null;
-          }
+        if (!user || !user.password) return null;
 
-          const valid = await bcrypt.compare(password, user.password);
+        const valid = await bcrypt.compare(password, user.password);
 
-          if (!valid) {
-            console.log("AUTH FAIL: password mismatch");
-            return null;
-          }
+        if (!valid) return null;
 
-          return {
-            id: user.id,
-            name: user.name || "",
-            email: user.email,
-            image: user.image || "",
-            dbId: user.id,
-          };
-        } catch (error) {
-          console.log("AUTHORIZE ERROR:", error);
-          return null;
-        }
+        return {
+          id: user.id,
+          name: user.name || "",
+          email: user.email,
+          image: user.image || "",
+          dbId: user.id,
+        } as any;
       },
     }),
   ],
@@ -103,9 +88,6 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.id as string;
-        session.user.name = token.name;
-        session.user.email = token.email;
-        session.user.image = token.picture;
       }
 
       return session;
@@ -118,7 +100,3 @@ export const authOptions: NextAuthOptions = {
 
   secret: process.env.NEXTAUTH_SECRET,
 };
-
-const handler = NextAuth(authOptions);
-
-export { handler as GET, handler as POST };
