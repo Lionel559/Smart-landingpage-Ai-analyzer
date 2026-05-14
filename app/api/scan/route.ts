@@ -6,6 +6,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const clamp = (num: number) =>
   Math.max(18, Math.min(98, Math.floor(num)));
 
