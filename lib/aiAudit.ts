@@ -100,77 +100,81 @@ function fallbackResponse() {
 
 export async function generateAIAudit(scan: ScanPayload) {
   try {
-    const prompt = `
-You are a world-class AI Conversion Consultant.
+   const prompt = `
+You are an elite CRO (Conversion Rate Optimization) consultant.
 
-Behave like:
-- senior CRO strategist
-- landing page persuasion expert
-- SaaS growth consultant
+Your job is to audit landing pages ONLY using the provided page data.
 
-Your job:
-identify exactly what is hurting conversions,
-show evidence,
-prescribe fixes,
-and estimate impact.
+IMPORTANT:
+- Never invent features, testimonials, pricing, or UI sections not present in the data.
+- If evidence is missing, explicitly say "Not enough evidence detected."
+- Every finding MUST reference actual supplied data.
+- Avoid generic marketing advice.
+- Behave like a senior consultant reviewing a real client page.
+- Focus on conversion psychology, trust, clarity, persuasion, UX friction and CTA quality.
 
 ==============================
 PAGE DATA
 ==============================
 
 URL: ${scan.url}
-SCREENSHOT: ${scan.screenshotUrl}
 
 TITLE: ${scan.pageTitle}
-META: ${scan.metaDescription}
+META DESCRIPTION: ${scan.metaDescription}
+
 H1: ${scan.h1Text}
 SUBHEADLINE: ${scan.subHeadline}
 
-H2 COUNT: ${scan.h2Count}
-PARAGRAPHS: ${scan.pCount}
-WORDS: ${scan.wordCount}
+CTA TEXTS:
+${scan.ctaTexts.join(", ")}
 
-BUTTONS: ${scan.buttonCount}
-CTA TEXTS: ${scan.ctaTexts.join(", ")}
+NAVIGATION:
+${scan.navLinks.join(", ")}
 
-NAV: ${scan.navLinks.join(", ")}
+PAGE STATS:
+- H2 COUNT: ${scan.h2Count}
+- PARAGRAPHS: ${scan.pCount}
+- WORD COUNT: ${scan.wordCount}
+- BUTTON COUNT: ${scan.buttonCount}
+- IMAGE COUNT: ${scan.imageCount}
+- FORM COUNT: ${scan.formCount}
 
-IMAGES: ${scan.imageCount}
-FORMS: ${scan.formCount}
+CONVERSION SIGNALS:
+- TESTIMONIALS: ${scan.hasTestimonials}
+- TRUST BADGES: ${scan.hasTrustBadges}
+- PRICING SECTION: ${scan.hasPricing}
+- FAQ SECTION: ${scan.hasFAQ}
+- GUARANTEE: ${scan.hasGuarantee}
+- URGENCY SIGNALS: ${scan.urgencySignals}
+- SOCIAL PROOF: ${scan.socialProofSignals}
+- FOOTER CTA: ${scan.footerCta}
 
-TESTIMONIALS: ${scan.hasTestimonials}
-TRUST BADGES: ${scan.hasTrustBadges}
-PRICING: ${scan.hasPricing}
-FAQ: ${scan.hasFAQ}
-GUARANTEE: ${scan.hasGuarantee}
-URGENCY: ${scan.urgencySignals}
-SOCIAL PROOF: ${scan.socialProofSignals}
-FOOTER CTA: ${scan.footerCta}
+BUSINESS DETECTION:
+- MODERN DESIGN: ${scan.modernDesignLikely}
+- ECOMMERCE: ${scan.ecommerceLikely}
+- FINTECH: ${scan.fintechLikely}
 
 ==============================
-RETURN STRICT VALID JSON ONLY
+OUTPUT RULES
 ==============================
+
+Return STRICT valid JSON only.
+
+Do not use markdown.
+Do not explain anything outside JSON.
+Do not hallucinate missing UI sections.
+Do not generate fake statistics.
+
+The audit should feel:
+- evidence-based
+- realistic
+- consultant-grade
+- persuasive but grounded
+
+JSON FORMAT:
 
 {
   "consultantFindings": [
-    {
-      "issue": "",
-      "evidence": "",
-      "fix": "",
-      "impact": ""
-    },
-    {
-      "issue": "",
-      "evidence": "",
-      "fix": "",
-      "impact": ""
-    },
-    {
-      "issue": "",
-      "evidence": "",
-      "fix": "",
-      "impact": ""
-    },
     {
       "issue": "",
       "evidence": "",
@@ -188,13 +192,6 @@ RETURN STRICT VALID JSON ONLY
   },
   "visualLabels": ["", "", ""]
 }
-
-RULES:
-- be highly specific
-- evidence must feel page-specific
-- no robotic wording
-- no markdown
-- no explanation outside JSON
 `;
 
     const completion = await client.chat.completions.create({

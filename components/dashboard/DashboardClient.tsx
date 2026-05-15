@@ -15,6 +15,7 @@ import RewriteLab from "@/components/dashboard/RewriteLab";
 
 export type AuditDataType = {
   id?: string;
+  createdAt?: string;
   siteUrl: string;
   seo: number;
   ux: number;

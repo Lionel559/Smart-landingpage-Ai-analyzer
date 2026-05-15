@@ -68,7 +68,13 @@ export default function RecentReports({ reportHistory }: Props) {
 
                 <div className="flex items-center gap-2 text-gray-400">
                   <Clock3 size={15} />
-                  Just now
+                  {report.createdAt
+  ? new Date(report.createdAt).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+  : "Just now"}
                 </div>
               </div>
             </div>
