@@ -2,18 +2,26 @@ import { NextResponse } from "next/server";
 import { scanWebsite } from "@/lib/scanner";
 import { getVisualScan } from "@/lib/visionScan";
 import { generateAIAudit } from "@/lib/aiAudit";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const revalidate = 0;
 
 const clamp = (num: number) =>
   Math.max(18, Math.min(98, Math.floor(num)));
 
+const safeQuickWins = (quickWins: any) => ({
+  headlineFix: quickWins?.headlineFix || "",
+  ctaFix: quickWins?.ctaFix || "",
+  trustFix: quickWins?.trustFix || "",
+});
+
 export async function POST(req: Request) {
   try {
+    const { getServerSession } = await import("next-auth");
+    const { authOptions } = await import("@/lib/authOptions");
+    const { prisma } = await import("@/lib/prisma");
+
     const session = await getServerSession(authOptions);
     const userId = (session?.user as any)?.id;
 
@@ -51,9 +59,6 @@ export async function POST(req: Request) {
             url
           )}&screenshot=true&meta=false&embed=screenshot.url`;
 
-    // ============================================
-    // FALLBACK MODE
-    // ============================================
     if (!scan || !scan.pageTitle) {
       const ai = await generateAIAudit({
         url,
@@ -81,6 +86,7 @@ export async function POST(req: Request) {
       });
 
       const consultantFindings = ai?.consultantFindings || [];
+
       const findings =
         consultantFindings.length > 0
           ? consultantFindings.map((x: any) => x.issue)
@@ -104,7 +110,7 @@ export async function POST(req: Request) {
           roadmap: ai?.roadmap || [],
           revenueNotes: ai?.revenueNotes || [],
           consultantFindings,
-          quickWins: ai?.quickWins || {},
+          quickWins: safeQuickWins(ai?.quickWins),
           visualLabels: ai?.visualLabels || [],
           screenshotUrl: screenshot,
           userId,
@@ -114,19 +120,16 @@ export async function POST(req: Request) {
       return NextResponse.json(fallbackAudit);
     }
 
-    // ============================================
-    // SCORING ENGINE
-    // ============================================
     let seo = 38;
-    if (scan.pageTitle.length > 15) seo += 12;
-    if (scan.metaDescription.length > 50) seo += 12;
-    if (scan.h1Text.length > 10) seo += 8;
+    if (scan.pageTitle?.length > 15) seo += 12;
+    if (scan.metaDescription?.length > 50) seo += 12;
+    if (scan.h1Text?.length > 10) seo += 8;
     if (scan.h2Count >= 2) seo += 8;
     if (scan.wordCount > 500) seo += 6;
-    if (scan.navLinks.length >= 3) seo += 5;
+    if (scan.navLinks?.length >= 3) seo += 5;
 
     let ux = 35;
-    if (scan.subHeadline.length > 20) ux += 12;
+    if (scan.subHeadline?.length > 20) ux += 12;
     if (scan.imageCount >= 3) ux += 10;
     if (scan.h2Count >= 3) ux += 8;
     if (scan.pCount <= 35) ux += 7;
@@ -152,10 +155,10 @@ export async function POST(req: Request) {
 
     let mobile = 36;
     if (scan.pCount <= 25) mobile += 10;
-    if (scan.inputCount <= 4) mobile += 8;
+    if ((scan.inputCount || 0) <= 4) mobile += 8;
     if (scan.imageCount >= 2) mobile += 6;
     if (scan.buttonCount >= 2) mobile += 6;
-    if (scan.navLinks.length <= 6) mobile += 6;
+    if (scan.navLinks?.length <= 6) mobile += 6;
 
     seo = clamp(seo);
     ux = clamp(ux);
@@ -167,48 +170,51 @@ export async function POST(req: Request) {
 
     const critical =
       health < 45 ? 5 : health < 60 ? 4 : health < 75 ? 3 : 2;
+
     const medium =
       health < 45 ? 6 : health < 60 ? 5 : health < 75 ? 4 : 2;
+
     const minor =
       health < 45 ? 3 : health < 60 ? 3 : health < 75 ? 2 : 1;
 
     const confidence = clamp(
       72 +
-        Math.floor(scan.wordCount / 400) +
-        scan.buttonCount +
-        scan.formCount +
+        Math.floor((scan.wordCount || 0) / 400) +
+        (scan.buttonCount || 0) +
+        (scan.formCount || 0) +
         (scan.hasTestimonials ? 3 : 0)
     );
 
     const ai = await generateAIAudit({
       url,
       screenshotUrl: screenshot,
-      pageTitle: scan.pageTitle,
-      metaDescription: scan.metaDescription,
-      h1Text: scan.h1Text,
-      h2Count: scan.h2Count,
-      pCount: scan.pCount,
-      buttonCount: scan.buttonCount,
-      imageCount: scan.imageCount,
-      formCount: scan.formCount,
-      hasTestimonials: scan.hasTestimonials,
-      hasTrustBadges: scan.hasTrustBadges,
-      hasPricing: scan.hasPricing,
-      subHeadline: scan.subHeadline,
-      ctaTexts: scan.ctaTexts,
-      navLinks: scan.navLinks,
-      hasFAQ: scan.hasFAQ,
-      hasGuarantee: scan.hasGuarantee,
-      urgencySignals: scan.urgencySignals,
-      socialProofSignals: scan.socialProofSignals,
-      footerCta: scan.footerCta,
-      wordCount: scan.wordCount,
+      pageTitle: scan.pageTitle || "",
+      metaDescription: scan.metaDescription || "",
+      h1Text: scan.h1Text || "",
+      h2Count: scan.h2Count || 0,
+      pCount: scan.pCount || 0,
+      buttonCount: scan.buttonCount || 0,
+      imageCount: scan.imageCount || 0,
+      formCount: scan.formCount || 0,
+      hasTestimonials: !!scan.hasTestimonials,
+      hasTrustBadges: !!scan.hasTrustBadges,
+      hasPricing: !!scan.hasPricing,
+      subHeadline: scan.subHeadline || "",
+      ctaTexts: scan.ctaTexts || [],
+      navLinks: scan.navLinks || [],
+      hasFAQ: !!scan.hasFAQ,
+      hasGuarantee: !!scan.hasGuarantee,
+      urgencySignals: !!scan.urgencySignals,
+      socialProofSignals: !!scan.socialProofSignals,
+      footerCta: !!scan.footerCta,
+      wordCount: scan.wordCount || 0,
       modernDesignLikely: visual?.modernDesignLikely,
       ecommerceLikely: visual?.ecommerceLikely,
       fintechLikely: visual?.fintechLikely,
     });
 
     const consultantFindings = ai?.consultantFindings || [];
+
     const findings =
       consultantFindings.length > 0
         ? consultantFindings.map((x: any) => x.issue)
@@ -232,7 +238,7 @@ export async function POST(req: Request) {
         roadmap: ai?.roadmap || [],
         revenueNotes: ai?.revenueNotes || [],
         consultantFindings,
-        quickWins: ai?.quickWins || {},
+        quickWins: safeQuickWins(ai?.quickWins),
         visualLabels: ai?.visualLabels || [],
         screenshotUrl: screenshot,
         userId,
@@ -242,6 +248,10 @@ export async function POST(req: Request) {
     return NextResponse.json(savedAudit);
   } catch (error) {
     console.log("SCAN ROUTE ERROR:", error);
-    return NextResponse.json({ error: "Scan failed" }, { status: 500 });
+
+    return NextResponse.json(
+      { error: "Scan failed" },
+      { status: 500 }
+    );
   }
 }
