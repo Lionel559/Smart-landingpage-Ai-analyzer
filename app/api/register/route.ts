@@ -12,26 +12,48 @@ export async function POST(req: Request) {
     const email = body.email?.trim().toLowerCase();
     const password = body.password?.trim();
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // VALIDATION
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: "Missing credentials" },
+        { error: "All fields are required" },
         { status: 400 }
       );
     }
 
+    // EMAIL CHECK
+    if (!emailRegex.test(email)) {
+      return NextResponse.json(
+        { error: "Please enter a valid email address" },
+        { status: 400 }
+      );
+    }
+
+    // PASSWORD CHECK
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: "Password must be at least 6 characters" },
+        { status: 400 }
+      );
+    }
+
+    // EXISTING USER CHECK
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "User already exists" },
+        { error: "Email already exists" },
         { status: 400 }
       );
     }
 
+    // HASH PASSWORD
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    // CREATE USER
     await prisma.user.create({
       data: {
         name,
@@ -46,6 +68,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.log("REGISTER ERROR:", error);
+
     return NextResponse.json(
       { error: "Registration failed" },
       { status: 500 }
