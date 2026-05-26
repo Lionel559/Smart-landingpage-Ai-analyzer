@@ -7,7 +7,6 @@ import {
   MousePointerClick,
   ShieldCheck,
   Smartphone,
-  ScanSearch,
   AlertTriangle,
   Eye,
   Radar,
@@ -88,6 +87,14 @@ function AnimatedNumber({ value }: { value: number }) {
 }
 
 export default function ScoreCards({ auditData }: Props) {
+  const visualFlags = Array.isArray(auditData?.visualFlags)
+    ? auditData.visualFlags.filter(
+        (flag): flag is string => typeof flag === "string"
+      )
+    : [];
+
+  const visualLabels = auditData?.visualLabels || [];
+
   const scores = [
     {
       title: "SEO Intelligence",
@@ -164,7 +171,9 @@ export default function ScoreCards({ auditData }: Props) {
           )}
 
           <div className="mt-3 space-y-1">
-            {auditData.visualFlags?.slice(0, 2).map((flag, i) => (
+            {(visualFlags.length ? visualFlags : visualLabels)
+              .slice(0, 2)
+              .map((flag, i) => (
               <div
                 key={i}
                 className="text-[10px] bg-red-50 text-red-500 px-2 py-1 rounded-full inline-flex items-center gap-1 mr-1"

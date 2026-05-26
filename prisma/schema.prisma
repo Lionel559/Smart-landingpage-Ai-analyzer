@@ -47,10 +47,24 @@ model Audit {
   aiFixes            Json?
   quickWins          Json?
   visualLabels       Json?
+  industry           String?
+  industryConfidence Int?
+  industryReasons    Json?
 
   screenshotUrl      String
+  isPublic           Boolean  @default(true)
   createdAt          DateTime @default(now())
 
   userId             String
   user               User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditFeedback {
+  id        String   @id @default(cuid())
+  auditId   String
+  rating    String
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([auditId])
 }

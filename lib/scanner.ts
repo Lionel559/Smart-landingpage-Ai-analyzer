@@ -58,7 +58,25 @@ export async function scanWebsite(url: string) {
           t.includes("contact") ||
           t.includes("schedule") ||
           t.includes("demo") ||
-          t.includes("free")
+          t.includes("free") ||
+          t.includes("listen") ||
+          t.includes("stream") ||
+          t.includes("watch") ||
+          t.includes("tickets") ||
+          t.includes("apply") ||
+          t.includes("enroll") ||
+          t.includes("admission") ||
+          t.includes("donate") ||
+          t.includes("volunteer") ||
+          t.includes("order") ||
+          t.includes("reserve") ||
+          t.includes("menu") ||
+          t.includes("appointment") ||
+          t.includes("quote") ||
+          t.includes("listing") ||
+          t.includes("shop") ||
+          t.includes("cart") ||
+          t.includes("subscribe")
         );
       });
 

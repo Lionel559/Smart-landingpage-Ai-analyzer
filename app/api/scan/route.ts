@@ -2,19 +2,481 @@ import { NextResponse } from "next/server";
 import { scanWebsite } from "@/lib/scanner";
 import { getVisualScan } from "@/lib/visionScan";
 import { generateAIAudit } from "@/lib/aiAudit";
+import type { ScanPayload, VisualOverlay } from "@/lib/aiAudit";
+import {
+  detectWebsiteIndustry,
+  type WebsiteIndustry,
+  type WebsiteIndustryDetection,
+} from "@/lib/industryDetection";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
+const MAX_UPLOAD_BYTES = 7 * 1024 * 1024;
+
+type ScanRequest = {
+  url: string;
+  screenshotUrl: string;
+  screenshotName: string;
+  screenshotSource?: "uploaded" | "provided";
+};
+
+type ScoreBundle = {
+  seo: number;
+  ux: number;
+  cta: number;
+  trust: number;
+  mobile: number;
+};
+
+type ScoreWeights = ScoreBundle;
+
+type QuickWins = {
+  headlineFix?: string;
+  ctaFix?: string;
+  trustFix?: string;
+};
+
+type ConsultantFinding = {
+  issue: string;
+  evidence: string;
+  fix: string;
+  impact: string;
+  confidence?: number;
+};
+
+type AiAuditResult = {
+  consultantFindings?: ConsultantFinding[];
+  visualLabels?: string[];
+  quickWins?: QuickWins;
+  summary?: string;
+  roadmap?: string[];
+  revenueNotes?: string[];
+  visualTrustScore?: number;
+  ctaVisibilityScore?: number;
+  readabilityScore?: number;
+  mobileClarityScore?: number;
+  persuasionScore?: number;
+  visualOverlays?: VisualOverlay[];
+  analysisMode?: string;
+};
+
+type WebsiteScan = {
+  pageTitle?: string;
+  metaDescription?: string;
+  h1Text?: string;
+  h2Count?: number;
+  pCount?: number;
+  buttonCount?: number;
+  imageCount?: number;
+  formCount?: number;
+  inputCount?: number;
+  hasTestimonials?: boolean;
+  hasTrustBadges?: boolean;
+  hasPricing?: boolean;
+  subHeadline?: string;
+  ctaTexts?: string[];
+  navLinks?: string[];
+  hasFAQ?: boolean;
+  hasGuarantee?: boolean;
+  urgencySignals?: boolean;
+  socialProofSignals?: boolean;
+  footerCta?: boolean;
+  wordCount?: number;
+  bodyTextSnippet?: string;
+};
+
+type VisualScan = {
+  screenshotUrl?: string;
+  aboveFoldLikelyWeak?: boolean;
+  textHeavyHero?: boolean;
+  lowVisualTrust?: boolean;
+  footerCtaMissing?: boolean;
+  modernDesignLikely?: boolean;
+  ecommerceLikely?: boolean;
+  fintechLikely?: boolean;
+};
+
+class ScanRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const clamp = (num: number) =>
   Math.max(18, Math.min(98, Math.floor(num)));
 
-const safeQuickWins = (quickWins: any) => ({
+const safeQuickWins = (quickWins?: QuickWins) => ({
   headlineFix: quickWins?.headlineFix || "",
   ctaFix: quickWins?.ctaFix || "",
   trustFix: quickWins?.trustFix || "",
 });
+
+const safeArray = <T,>(value: unknown): T[] =>
+  Array.isArray(value) ? (value as T[]) : [];
+
+const safeVisualScores = (ai?: AiAuditResult) => ({
+  visualTrustScore: clamp(ai?.visualTrustScore || 58),
+  ctaVisibilityScore: clamp(ai?.ctaVisibilityScore || 58),
+  readabilityScore: clamp(ai?.readabilityScore || 62),
+  mobileClarityScore: clamp(ai?.mobileClarityScore || 62),
+  persuasionScore: clamp(ai?.persuasionScore || 58),
+});
+
+const industryScoreWeights: Record<WebsiteIndustry, ScoreWeights> = {
+  SaaS: {
+    seo: 0.12,
+    ux: 0.24,
+    cta: 0.27,
+    trust: 0.23,
+    mobile: 0.14,
+  },
+  Ecommerce: {
+    seo: 0.1,
+    ux: 0.22,
+    cta: 0.28,
+    trust: 0.24,
+    mobile: 0.16,
+  },
+  "Fintech / Payment": {
+    seo: 0.14,
+    ux: 0.18,
+    cta: 0.2,
+    trust: 0.32,
+    mobile: 0.16,
+  },
+  "Education / School": {
+    seo: 0.14,
+    ux: 0.26,
+    cta: 0.18,
+    trust: 0.28,
+    mobile: 0.14,
+  },
+  "Music / Entertainment": {
+    seo: 0.12,
+    ux: 0.28,
+    cta: 0.26,
+    trust: 0.14,
+    mobile: 0.2,
+  },
+  Portfolio: {
+    seo: 0.16,
+    ux: 0.3,
+    cta: 0.2,
+    trust: 0.18,
+    mobile: 0.16,
+  },
+  Agency: {
+    seo: 0.16,
+    ux: 0.22,
+    cta: 0.22,
+    trust: 0.24,
+    mobile: 0.16,
+  },
+  Healthcare: {
+    seo: 0.14,
+    ux: 0.22,
+    cta: 0.2,
+    trust: 0.3,
+    mobile: 0.14,
+  },
+  "Real Estate": {
+    seo: 0.14,
+    ux: 0.22,
+    cta: 0.25,
+    trust: 0.23,
+    mobile: 0.16,
+  },
+  "Restaurant / Food": {
+    seo: 0.12,
+    ux: 0.24,
+    cta: 0.28,
+    trust: 0.18,
+    mobile: 0.18,
+  },
+  Nonprofit: {
+    seo: 0.14,
+    ux: 0.22,
+    cta: 0.26,
+    trust: 0.24,
+    mobile: 0.14,
+  },
+  "General Business": {
+    seo: 0.2,
+    ux: 0.2,
+    cta: 0.2,
+    trust: 0.2,
+    mobile: 0.2,
+  },
+};
+
+function normalizeUrl(url: string) {
+  const trimmed = (url || "").trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  if (trimmed.includes(".") && !trimmed.startsWith("Uploaded screenshot:")) {
+    return `https://${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+function isHttpUrl(url: string) {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+function isImageUrl(url: string) {
+  return (
+    url.startsWith("data:image/") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  );
+}
+
+async function dataUrlFromFile(file: FormDataEntryValue | null) {
+  if (!file || typeof file === "string") {
+    return "";
+  }
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new ScanRequestError(
+      "Screenshot file is too large. Please upload an image under 7 MB."
+    );
+  }
+
+  const mime = file.type || "image/png";
+
+  if (!mime.startsWith("image/")) {
+    throw new ScanRequestError("Uploaded file must be an image.");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  return `data:${mime};base64,${buffer.toString("base64")}`;
+}
+
+async function readScanRequest(req: Request): Promise<ScanRequest> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const file = form.get("screenshot");
+    const dataUrl = await dataUrlFromFile(file);
+    const fileName =
+      file && typeof file !== "string" ? file.name : "uploaded-screenshot";
+
+    return {
+      url: String(form.get("url") || ""),
+      screenshotUrl:
+        dataUrl || String(form.get("screenshotUrl") || "").trim(),
+      screenshotName:
+        fileName || String(form.get("screenshotName") || "uploaded-screenshot"),
+      screenshotSource: dataUrl ? "uploaded" : "provided",
+    };
+  }
+
+  const body = (await req.json()) as Record<string, unknown>;
+  const screenshotDataUrl = String(body.screenshotDataUrl || "").trim();
+  const screenshotUrl = String(body.screenshotUrl || "").trim();
+
+  return {
+    url: String(body.url || ""),
+    screenshotUrl: screenshotDataUrl || screenshotUrl,
+    screenshotName: String(body.screenshotName || "provided-screenshot"),
+    screenshotSource: screenshotDataUrl ? "uploaded" : screenshotUrl ? "provided" : undefined,
+  };
+}
+
+function scoreFromDom(scan: WebsiteScan, visual: VisualScan | null): ScoreBundle {
+  const pageTitle = scan.pageTitle || "";
+  const metaDescription = scan.metaDescription || "";
+  const h1Text = scan.h1Text || "";
+  const h2Count = scan.h2Count || 0;
+  const pCount = scan.pCount || 0;
+  const subHeadline = scan.subHeadline || "";
+  const imageCount = scan.imageCount || 0;
+  const buttonCount = scan.buttonCount || 0;
+  const formCount = scan.formCount || 0;
+  const inputCount = scan.inputCount || 0;
+  const navLinks = scan.navLinks || [];
+  const wordCount = scan.wordCount || 0;
+
+  let seo = 38;
+  if (pageTitle.length > 15) seo += 12;
+  if (metaDescription.length > 50) seo += 12;
+  if (h1Text.length > 10) seo += 8;
+  if (h2Count >= 2) seo += 8;
+  if (wordCount > 500) seo += 6;
+  if (navLinks.length >= 3) seo += 5;
+
+  let ux = 35;
+  if (subHeadline.length > 20) ux += 12;
+  if (imageCount >= 3) ux += 10;
+  if (h2Count >= 3) ux += 8;
+  if (pCount <= 35) ux += 7;
+  if (scan.hasFAQ) ux += 5;
+  if (visual?.textHeavyHero) ux -= 6;
+
+  let cta = 30;
+  if (buttonCount >= 2) cta += 10;
+  if (buttonCount >= 4) cta += 8;
+  if (formCount >= 1) cta += 10;
+  if (scan.footerCta) cta += 8;
+  if (scan.urgencySignals) cta += 6;
+  if (visual?.aboveFoldLikelyWeak) cta -= 8;
+  if (visual?.footerCtaMissing) cta -= 6;
+
+  let trust = 32;
+  if (scan.hasTestimonials) trust += 12;
+  if (scan.hasTrustBadges) trust += 12;
+  if (scan.hasGuarantee) trust += 8;
+  if (scan.socialProofSignals) trust += 10;
+  if (scan.hasPricing) trust += 4;
+  if (visual?.lowVisualTrust) trust -= 6;
+
+  let mobile = 36;
+  if (pCount <= 25) mobile += 10;
+  if (inputCount <= 4) mobile += 8;
+  if (imageCount >= 2) mobile += 6;
+  if (buttonCount >= 2) mobile += 6;
+  if (navLinks.length <= 6) mobile += 6;
+
+  return {
+    seo: clamp(seo),
+    ux: clamp(ux),
+    cta: clamp(cta),
+    trust: clamp(trust),
+    mobile: clamp(mobile),
+  };
+}
+
+function scoreFromVisual(ai: AiAuditResult): ScoreBundle {
+  const visualScores = safeVisualScores(ai);
+
+  return {
+    seo: 52,
+    ux: clamp(
+      (visualScores.readabilityScore + visualScores.persuasionScore) / 2
+    ),
+    cta: visualScores.ctaVisibilityScore,
+    trust: visualScores.visualTrustScore,
+    mobile: visualScores.mobileClarityScore,
+  };
+}
+
+function blendScores(domScores: ScoreBundle, ai: AiAuditResult): ScoreBundle {
+  const visualScores = safeVisualScores(ai);
+
+  return {
+    seo: domScores.seo,
+    ux: clamp(
+      domScores.ux * 0.55 +
+        ((visualScores.readabilityScore + visualScores.persuasionScore) / 2) *
+          0.45
+    ),
+    cta: clamp(domScores.cta * 0.45 + visualScores.ctaVisibilityScore * 0.55),
+    trust: clamp(domScores.trust * 0.45 + visualScores.visualTrustScore * 0.55),
+    mobile: clamp(
+      domScores.mobile * 0.45 + visualScores.mobileClarityScore * 0.55
+    ),
+  };
+}
+
+function weightedHealthScore(scores: ScoreBundle, industry: WebsiteIndustry) {
+  const weights =
+    industryScoreWeights[industry] || industryScoreWeights["General Business"];
+
+  return clamp(
+    scores.seo * weights.seo +
+      scores.ux * weights.ux +
+      scores.cta * weights.cta +
+      scores.trust * weights.trust +
+      scores.mobile * weights.mobile
+  );
+}
+
+function severityCounts(health: number, findingsCount: number) {
+  const baseCritical =
+    health < 45 ? 5 : health < 60 ? 4 : health < 75 ? 3 : 2;
+
+  const critical = Math.min(6, Math.max(1, Math.min(baseCritical, findingsCount)));
+
+  return {
+    critical,
+    medium: health < 45 ? 6 : health < 60 ? 5 : health < 75 ? 4 : 2,
+    minor: health < 45 ? 3 : health < 60 ? 3 : health < 75 ? 2 : 1,
+  };
+}
+
+function buildScanPayload({
+  siteLabel,
+  screenshot,
+  screenshotSource,
+  scan,
+  visual,
+  hasHttpTarget,
+  industryData,
+}: {
+  siteLabel: string;
+  screenshot: string;
+  screenshotSource: "captured" | "uploaded" | "provided" | "none";
+  scan: WebsiteScan | null;
+  visual: VisualScan | null;
+  hasHttpTarget: boolean;
+  industryData: WebsiteIndustryDetection;
+}): ScanPayload {
+  const analysisMode: ScanPayload["analysisMode"] = hasHttpTarget
+    ? "url"
+    : screenshotSource === "uploaded"
+    ? "screenshot_upload"
+    : "screenshot_url";
+
+  return {
+    url: siteLabel,
+    screenshotUrl: screenshot,
+    pageTitle: scan?.pageTitle || "",
+    metaDescription: scan?.metaDescription || "",
+    h1Text: scan?.h1Text || "",
+    h2Count: scan?.h2Count || 0,
+    pCount: scan?.pCount || 0,
+    buttonCount: scan?.buttonCount || 0,
+    imageCount: scan?.imageCount || 0,
+    formCount: scan?.formCount || 0,
+    inputCount: scan?.inputCount || 0,
+    hasTestimonials: !!scan?.hasTestimonials,
+    hasTrustBadges: !!scan?.hasTrustBadges,
+    hasPricing: !!scan?.hasPricing,
+    subHeadline: scan?.subHeadline || "",
+    ctaTexts: scan?.ctaTexts || [],
+    navLinks: scan?.navLinks || [],
+    hasFAQ: !!scan?.hasFAQ,
+    hasGuarantee: !!scan?.hasGuarantee,
+    urgencySignals: !!scan?.urgencySignals,
+    socialProofSignals: !!scan?.socialProofSignals,
+    footerCta: !!scan?.footerCta,
+    wordCount: scan?.wordCount || 0,
+    bodyTextSnippet: scan?.bodyTextSnippet || "",
+    analysisMode,
+    screenshotSource,
+    modernDesignLikely: visual?.modernDesignLikely,
+    ecommerceLikely: visual?.ecommerceLikely,
+    fintechLikely: visual?.fintechLikely,
+    industry: industryData.industry,
+    industryConfidence: industryData.confidence,
+    industryReasons: industryData.reasons,
+  };
+}
 
 export async function POST(req: Request) {
   try {
@@ -23,211 +485,124 @@ export async function POST(req: Request) {
     const { prisma } = await import("@/lib/prisma");
 
     const session = await getServerSession(authOptions);
-    const userId = (session?.user as any)?.id;
+    const user = session?.user as { id?: string } | undefined;
+    const userId = user?.id;
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { url } = body;
+    const input = await readScanRequest(req);
+    const normalizedUrl = normalizeUrl(input.url);
+    const hasHttpTarget = isHttpUrl(normalizedUrl);
+    const hasScreenshot = isImageUrl(input.screenshotUrl);
 
-    if (!url) {
-      return NextResponse.json({ error: "No URL provided" }, { status: 400 });
+    if (!hasHttpTarget && !hasScreenshot) {
+      return NextResponse.json(
+        { error: "Please provide a landing page URL or upload a screenshot." },
+        { status: 400 }
+      );
     }
 
-    let scan: any = null;
-    let visual: any = null;
+    let scan: WebsiteScan | null = null;
+    let visual: VisualScan | null = null;
 
-    try {
-      scan = await scanWebsite(url);
-    } catch (err) {
-      console.log("SCAN FAILED:", err);
+    if (hasHttpTarget) {
+      try {
+        scan = (await scanWebsite(normalizedUrl)) as WebsiteScan | null;
+      } catch (err) {
+        console.log("SCAN FAILED:", err);
+      }
+
+      try {
+        visual = (await getVisualScan(normalizedUrl)) as VisualScan | null;
+      } catch (err) {
+        console.log("VISUAL FAILED:", err);
+      }
     }
 
-    try {
-      visual = await getVisualScan(url);
-    } catch (err) {
-      console.log("VISUAL FAILED:", err);
-    }
-
-    const screenshot =
-      visual?.screenshotUrl &&
-      !visual.screenshotUrl.includes("unauthorized")
+    const capturedScreenshot =
+      visual?.screenshotUrl && !visual.screenshotUrl.includes("unauthorized")
         ? visual.screenshotUrl
-        : `https://api.microlink.io/?url=${encodeURIComponent(
-            url
-          )}&screenshot=true&meta=false&embed=screenshot.url`;
+        : hasHttpTarget
+        ? `https://api.microlink.io/?url=${encodeURIComponent(
+            normalizedUrl
+          )}&screenshot=true&meta=false&embed=screenshot.url`
+        : "";
 
-    if (!scan || !scan.pageTitle) {
-      const ai = await generateAIAudit({
-        url,
-        screenshotUrl: screenshot,
-        pageTitle: "",
-        metaDescription: "",
-        h1Text: "",
-        h2Count: 0,
-        pCount: 0,
-        buttonCount: 0,
-        imageCount: 0,
-        formCount: 0,
-        hasTestimonials: false,
-        hasTrustBadges: false,
-        hasPricing: false,
-        subHeadline: "",
-        ctaTexts: [],
-        navLinks: [],
-        hasFAQ: false,
-        hasGuarantee: false,
-        urgencySignals: false,
-        socialProofSignals: false,
-        footerCta: false,
-        wordCount: 0,
-      });
+    const screenshot = hasScreenshot ? input.screenshotUrl : capturedScreenshot;
+    const screenshotSource =
+      input.screenshotSource ||
+      (capturedScreenshot ? "captured" : "none");
 
-      const consultantFindings = ai?.consultantFindings || [];
+    const siteLabel = hasHttpTarget
+      ? normalizedUrl
+      : input.screenshotUrl.startsWith("http")
+      ? input.screenshotUrl
+      : `Uploaded screenshot: ${input.screenshotName}`;
 
-      const findings =
-        consultantFindings.length > 0
-          ? consultantFindings.map((x: any) => x.issue)
-          : ai?.findings || ["AI analysis unavailable"];
-
-      const fallbackAudit = await prisma.audit.create({
-        data: {
-          siteUrl: url,
-          seo: 60,
-          ux: 62,
-          cta: 58,
-          trust: 55,
-          mobile: 65,
-          health: 60,
-          critical: 3,
-          medium: 4,
-          minor: 2,
-          confidence: 65,
-          findings,
-          summary: ai?.summary || "AI summary unavailable",
-          roadmap: ai?.roadmap || [],
-          revenueNotes: ai?.revenueNotes || [],
-          consultantFindings,
-          quickWins: safeQuickWins(ai?.quickWins),
-          visualLabels: ai?.visualLabels || [],
-          screenshotUrl: screenshot,
-          userId,
-        },
-      });
-
-      return NextResponse.json(fallbackAudit);
-    }
-
-    let seo = 38;
-    if (scan.pageTitle?.length > 15) seo += 12;
-    if (scan.metaDescription?.length > 50) seo += 12;
-    if (scan.h1Text?.length > 10) seo += 8;
-    if (scan.h2Count >= 2) seo += 8;
-    if (scan.wordCount > 500) seo += 6;
-    if (scan.navLinks?.length >= 3) seo += 5;
-
-    let ux = 35;
-    if (scan.subHeadline?.length > 20) ux += 12;
-    if (scan.imageCount >= 3) ux += 10;
-    if (scan.h2Count >= 3) ux += 8;
-    if (scan.pCount <= 35) ux += 7;
-    if (scan.hasFAQ) ux += 5;
-    if (visual?.textHeavyHero) ux -= 6;
-
-    let cta = 30;
-    if (scan.buttonCount >= 2) cta += 10;
-    if (scan.buttonCount >= 4) cta += 8;
-    if (scan.formCount >= 1) cta += 10;
-    if (scan.footerCta) cta += 8;
-    if (scan.urgencySignals) cta += 6;
-    if (visual?.aboveFoldLikelyWeak) cta -= 8;
-    if (visual?.footerCtaMissing) cta -= 6;
-
-    let trust = 32;
-    if (scan.hasTestimonials) trust += 12;
-    if (scan.hasTrustBadges) trust += 12;
-    if (scan.hasGuarantee) trust += 8;
-    if (scan.socialProofSignals) trust += 10;
-    if (scan.hasPricing) trust += 4;
-    if (visual?.lowVisualTrust) trust -= 6;
-
-    let mobile = 36;
-    if (scan.pCount <= 25) mobile += 10;
-    if ((scan.inputCount || 0) <= 4) mobile += 8;
-    if (scan.imageCount >= 2) mobile += 6;
-    if (scan.buttonCount >= 2) mobile += 6;
-    if (scan.navLinks?.length <= 6) mobile += 6;
-
-    seo = clamp(seo);
-    ux = clamp(ux);
-    cta = clamp(cta);
-    trust = clamp(trust);
-    mobile = clamp(mobile);
-
-    const health = clamp((seo + ux + cta + trust + mobile) / 5);
-
-    const critical =
-      health < 45 ? 5 : health < 60 ? 4 : health < 75 ? 3 : 2;
-
-    const medium =
-      health < 45 ? 6 : health < 60 ? 5 : health < 75 ? 4 : 2;
-
-    const minor =
-      health < 45 ? 3 : health < 60 ? 3 : health < 75 ? 2 : 1;
-
-    const confidence = clamp(
-      72 +
-        Math.floor((scan.wordCount || 0) / 400) +
-        (scan.buttonCount || 0) +
-        (scan.formCount || 0) +
-        (scan.hasTestimonials ? 3 : 0)
-    );
-
-    const ai = await generateAIAudit({
-      url,
-      screenshotUrl: screenshot,
-      pageTitle: scan.pageTitle || "",
-      metaDescription: scan.metaDescription || "",
-      h1Text: scan.h1Text || "",
-      h2Count: scan.h2Count || 0,
-      pCount: scan.pCount || 0,
-      buttonCount: scan.buttonCount || 0,
-      imageCount: scan.imageCount || 0,
-      formCount: scan.formCount || 0,
-      hasTestimonials: !!scan.hasTestimonials,
-      hasTrustBadges: !!scan.hasTrustBadges,
-      hasPricing: !!scan.hasPricing,
-      subHeadline: scan.subHeadline || "",
-      ctaTexts: scan.ctaTexts || [],
-      navLinks: scan.navLinks || [],
-      hasFAQ: !!scan.hasFAQ,
-      hasGuarantee: !!scan.hasGuarantee,
-      urgencySignals: !!scan.urgencySignals,
-      socialProofSignals: !!scan.socialProofSignals,
-      footerCta: !!scan.footerCta,
-      wordCount: scan.wordCount || 0,
-      modernDesignLikely: visual?.modernDesignLikely,
+    const industryData = detectWebsiteIndustry({
+      ...(scan || {}),
       ecommerceLikely: visual?.ecommerceLikely,
       fintechLikely: visual?.fintechLikely,
     });
 
-    const consultantFindings = ai?.consultantFindings || [];
+    const ai: AiAuditResult = await generateAIAudit(
+      buildScanPayload({
+        siteLabel,
+        screenshot,
+        screenshotSource,
+        scan,
+        visual,
+        hasHttpTarget,
+        industryData,
+      })
+    );
 
+    const consultantFindings = safeArray<ConsultantFinding>(
+      ai?.consultantFindings
+    );
     const findings =
       consultantFindings.length > 0
-        ? consultantFindings.map((x: any) => x.issue)
-        : ai?.findings || ["AI analysis unavailable"];
+        ? consultantFindings.map((x) => x.issue)
+        : ["No specific conversion findings were returned."];
+
+    const baseScores = scan?.pageTitle
+      ? blendScores(scoreFromDom(scan, visual), ai)
+      : scoreFromVisual(ai);
+
+    const health = weightedHealthScore(baseScores, industryData.industry);
+
+    const { critical, medium, minor } = severityCounts(
+      health,
+      Math.max(consultantFindings.length, 1)
+    );
+
+    const confidence = clamp(
+      62 +
+        (screenshot ? 10 : 0) +
+        (ai?.analysisMode === "multimodal_vision" ? 12 : 0) +
+        Math.floor((scan?.wordCount || 0) / 500) +
+        (scan?.buttonCount || 0) +
+        (scan?.hasTestimonials ? 3 : 0)
+    );
+
+    const visualScores = safeVisualScores(ai);
+    const visualOverlays = safeArray<VisualOverlay>(ai?.visualOverlays);
+    const aiFixes = {
+      visualScores,
+      visualOverlays,
+      analysisMode: ai?.analysisMode || "dom_fallback",
+    };
 
     const savedAudit = await prisma.audit.create({
       data: {
-        siteUrl: url,
-        seo,
-        ux,
-        cta,
-        trust,
-        mobile,
+        siteUrl: siteLabel,
+        seo: baseScores.seo,
+        ux: baseScores.ux,
+        cta: baseScores.cta,
+        trust: baseScores.trust,
+        mobile: baseScores.mobile,
         health,
         critical,
         medium,
@@ -235,23 +610,41 @@ export async function POST(req: Request) {
         confidence,
         findings,
         summary: ai?.summary || "AI summary unavailable",
-        roadmap: ai?.roadmap || [],
-        revenueNotes: ai?.revenueNotes || [],
+        roadmap: safeArray<string>(ai?.roadmap),
+        revenueNotes: safeArray<string>(ai?.revenueNotes),
         consultantFindings,
         quickWins: safeQuickWins(ai?.quickWins),
-        visualLabels: ai?.visualLabels || [],
+        visualLabels: safeArray<string>(ai?.visualLabels),
+        visualFlags: visualOverlays,
+        aiFixes,
         screenshotUrl: screenshot,
+        industry: industryData.industry,
+        industryConfidence: industryData.confidence,
+        industryReasons: industryData.reasons,
+        isPublic: true,
         userId,
       },
     });
 
-    return NextResponse.json(savedAudit);
-  } catch (error) {
+    return NextResponse.json({
+      ...savedAudit,
+      ...visualScores,
+      visualScores,
+      visualOverlays,
+      analysisMode: aiFixes.analysisMode,
+    });
+  } catch (error: unknown) {
     console.log("SCAN ROUTE ERROR:", error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        :
+      "Scan failed. Please try another page or screenshot.";
+
     return NextResponse.json(
-      { error: "Scan failed" },
-      { status: 500 }
+      { error: message },
+      { status: error instanceof ScanRequestError ? error.status : 500 }
     );
   }
 }

@@ -24,10 +24,17 @@ export default function AnalyzerBox({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [siteUrl, setSiteUrl] = useState("");
+  const [loadingLabel, setLoadingLabel] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const getErrorText = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message : fallback;
+
+  const isAbortError = (error: unknown) =>
+    error instanceof Error && error.name === "AbortError";
 
   const normalizeUrl = (url: string) => {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -35,6 +42,54 @@ export default function AnalyzerBox({
     }
 
     return url;
+  };
+
+  const prepareScreenshotFile = async (file: File) => {
+    if (file.size <= 4.5 * 1024 * 1024) {
+      return file;
+    }
+
+    let objectUrl = "";
+
+    try {
+      objectUrl = URL.createObjectURL(file);
+      const image = new Image();
+
+      const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = objectUrl;
+      });
+
+      const img = await loaded;
+      const maxWidth = 1400;
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement("canvas");
+
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        return file;
+      }
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", 0.82);
+      });
+
+      return blob || file;
+    } catch (error) {
+      console.log("SCREENSHOT RESIZE ERROR:", error);
+      return file;
+    } finally {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
   };
 
   const hydrateAuditUI = async (data: AuditDataType) => {
@@ -76,19 +131,20 @@ export default function AnalyzerBox({
       return;
     }
 
+    const cleanUrl = normalizeUrl(siteUrl.trim());
+
     setErrorMsg("");
     setSuccessMsg("");
     setLoading(true);
+    setLoadingLabel(cleanUrl);
 
     const controller = new AbortController();
 
     const timeout = setTimeout(() => {
       controller.abort();
-    }, 45000);
+    }, 90000);
 
     try {
-      const cleanUrl = normalizeUrl(siteUrl);
-
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: {
@@ -100,8 +156,6 @@ export default function AnalyzerBox({
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
-
       const data = await res.json();
 
       if (!res.ok || !data?.id) {
@@ -109,21 +163,23 @@ export default function AnalyzerBox({
       }
 
       await hydrateAuditUI(data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.log("SCAN ERROR:", error);
 
-      if (error.name === "AbortError") {
+      if (isAbortError(error)) {
         setErrorMsg(
           "Audit timed out. Some websites are slow or block scanners."
         );
       } else {
         setErrorMsg(
-          error.message || "Scan failed. Please try another page."
+          getErrorText(error, "Scan failed. Please try another page.")
         );
       }
+    } finally {
+      clearTimeout(timeout);
+      setLoading(false);
+      setLoadingLabel("");
     }
-
-    setLoading(false);
   };
 
   const handleScreenshotAudit = async (
@@ -135,89 +191,92 @@ export default function AnalyzerBox({
 
     if (!file) return;
 
+    if (!file.type.startsWith("image/")) {
+      setErrorMsg("Please upload a PNG, JPG, WebP or other image file.");
+      return;
+    }
+
     setErrorMsg("");
     setSuccessMsg("");
     setLoading(true);
+    setLoadingLabel(file.name);
 
-    setTimeout(async () => {
-      const previewUrl = URL.createObjectURL(file);
+    const controller = new AbortController();
 
-      const fakeAudit: AuditDataType = {
-        id: `local-${Date.now()}`,
-        siteUrl: file.name,
-        seo: 68,
-        ux: 74,
-        cta: 61,
-        trust: 70,
-        mobile: 79,
-        health: 71,
-        critical: 2,
-        medium: 4,
-        minor: 3,
-        confidence: 89,
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 90000);
 
-        findings: [
-          "❌ Hero section lacks immediate conversion clarity.",
-          "⚠️ Primary CTA button lacks urgency and visual prominence.",
-          "❌ Trust signals are below ideal first-screen placement.",
-          "📱 Mobile screenshot indicates dense content stacking.",
-        ],
+    try {
+      const preparedFile = await prepareScreenshotFile(file);
+      const formData = new FormData();
 
-        summary:
-          "AI screenshot vision review indicates moderate landing page health with strong improvement opportunities in CTA hierarchy, trust acceleration and first-fold messaging.",
+      formData.append("screenshot", preparedFile, file.name);
+      formData.append("screenshotName", file.name);
 
-        roadmap: [
-          "Rewrite above-the-fold headline to sharpen offer clarity.",
-          "Increase CTA size, contrast and urgency language.",
-          "Move testimonial/security badges closer to hero CTA.",
-          "Reduce mobile content congestion and improve visual breathing room.",
-        ],
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
 
-        revenueNotes: [],
+      const data = await res.json();
 
-        screenshotUrl: previewUrl,
-      };
+      if (!res.ok || !data?.id) {
+        throw new Error(data?.error || "Screenshot audit failed");
+      }
 
-      await hydrateAuditUI(fakeAudit);
+      await hydrateAuditUI(data);
+    } catch (error: unknown) {
+      console.log("SCREENSHOT AUDIT ERROR:", error);
 
+      if (isAbortError(error)) {
+        setErrorMsg(
+          "Screenshot audit timed out. Try a smaller screenshot or run a URL audit."
+        );
+      } else {
+        setErrorMsg(
+          getErrorText(
+            error,
+            "Screenshot audit failed. Please try another image."
+          )
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
       setLoading(false);
+      setLoadingLabel("");
 
-      setTimeout(() => {
-        URL.revokeObjectURL(previewUrl);
-      }, 15000);
-    }, 4500);
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
+    }
   };
 
   return (
     <>
       <div className="relative overflow-hidden glass-card rounded-[40px] px-6 py-7 md:px-10 md:py-10 xl:px-14 xl:py-14">
-        {/* BACKGROUND GLOWS */}
         <div className="absolute top-[-80px] right-[-40px] w-[260px] h-[260px] bg-blue-100 blur-[120px] rounded-full opacity-70"></div>
-
         <div className="absolute bottom-[-80px] left-[-40px] w-[240px] h-[240px] bg-indigo-100 blur-[120px] rounded-full opacity-60"></div>
 
         <div className="relative z-10">
-          {/* TOP BADGE */}
           <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs md:text-sm font-semibold border border-blue-100 shadow-sm">
             <Sparkles size={14} />
             AI Conversion Intelligence Engine
           </div>
 
-          {/* MAIN GRID */}
           <div className="grid xl:grid-cols-2 gap-12 mt-8 items-center">
-            {/* LEFT */}
             <div>
               <h2 className="text-[42px] md:text-[56px] leading-[1.05] tracking-[-2px] font-bold text-slate-900 max-w-[700px]">
                 Diagnose why visitors are not converting
               </h2>
 
               <p className="text-slate-600 mt-6 text-[17px] leading-8 max-w-[620px]">
-                PageDoctor AI audits landing pages like a real CRO consultant —
+                PageDoctor AI audits landing pages like a real CRO consultant -
                 identifying persuasion leaks, trust friction, CTA weaknesses
                 and hidden conversion blockers reducing revenue performance.
               </p>
 
-              {/* TRUST ROW */}
               <div className="flex flex-wrap gap-3 mt-8">
                 <div className="bg-white/80 border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-700">
                   AI UX Intelligence
@@ -233,9 +292,7 @@ export default function AnalyzerBox({
               </div>
             </div>
 
-            {/* RIGHT PANEL */}
             <div className="bg-white/70 backdrop-blur-xl border border-white rounded-[34px] p-6 md:p-7 shadow-[0_20px_60px_rgba(37,99,235,0.08)]">
-              {/* INPUT */}
               <div>
                 <label className="text-sm font-semibold text-slate-700 block mb-3">
                   Landing Page URL
@@ -257,7 +314,6 @@ export default function AnalyzerBox({
                 </div>
               </div>
 
-              {/* BUTTONS */}
               <div className="grid sm:grid-cols-2 gap-4 mt-5">
                 <button
                   disabled={loading}
@@ -279,7 +335,6 @@ export default function AnalyzerBox({
                 </button>
               </div>
 
-              {/* FILE INPUT */}
               <input
                 type="file"
                 accept="image/*"
@@ -288,7 +343,6 @@ export default function AnalyzerBox({
                 className="hidden"
               />
 
-              {/* ERROR */}
               {errorMsg && (
                 <div className="mt-5 bg-red-50 border border-red-100 text-red-600 rounded-2xl px-4 py-4 text-sm flex gap-3 items-start">
                   <AlertCircle size={17} className="mt-[1px]" />
@@ -296,7 +350,6 @@ export default function AnalyzerBox({
                 </div>
               )}
 
-              {/* SUCCESS */}
               {successMsg && (
                 <div className="mt-5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-2xl px-4 py-4 text-sm flex gap-3 items-start">
                   <CheckCircle2 size={17} className="mt-[1px]" />
@@ -304,7 +357,6 @@ export default function AnalyzerBox({
                 </div>
               )}
 
-              {/* FOOTER */}
               <div className="mt-7 pt-5 border-t border-slate-100 flex items-center justify-between text-sm">
                 <div className="text-slate-500">
                   AI consultant-grade landing page analysis
@@ -319,8 +371,7 @@ export default function AnalyzerBox({
         </div>
       </div>
 
-      {/* LOADER */}
-      {loading && <AuditLoader siteUrl={siteUrl} />}
+      {loading && <AuditLoader siteUrl={loadingLabel || siteUrl} />}
     </>
   );
 }

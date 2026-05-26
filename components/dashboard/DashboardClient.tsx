@@ -12,6 +12,29 @@ import AuditResults from "@/components/dashboard/AuditResults";
 import VisualHeatmap from "@/components/dashboard/VisualHeatmap";
 import RevenueEstimator from "@/components/dashboard/RevenueEstimator";
 import RewriteLab from "@/components/dashboard/RewriteLab";
+import Link from "next/link";
+import ShareReportButton from "@/components/report/ShareReportButton";
+import AIAccuracyNotice from "@/components/dashboard/AIAccuracyNotice";
+import ConfidenceBadge from "@/components/shared/ConfidenceBadge";
+
+export type VisualOverlay = {
+  type: "weak_cta" | "clutter" | "missing_trust" | "poor_hierarchy";
+  label: string;
+  evidence: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  severity: "critical" | "medium" | "minor";
+};
+
+export type VisualScores = {
+  visualTrustScore?: number;
+  ctaVisibilityScore?: number;
+  readabilityScore?: number;
+  mobileClarityScore?: number;
+  persuasionScore?: number;
+};
 
 export type AuditDataType = {
   id?: string;
@@ -27,17 +50,34 @@ export type AuditDataType = {
   medium: number;
   minor: number;
   confidence: number;
+  industry?: string | null;
+  industryConfidence?: number | null;
+  industryReasons?: string[] | null;
   findings: string[];
   summary: string;
   roadmap: string[];
   revenueNotes: string[];
   screenshotUrl?: string;
+  isPublic?: boolean;
 
-heroWeak?: boolean;
-ctaWeak?: boolean;
-trustWeak?: boolean;
-trustDetected?: boolean;
-visualFlags?: string[];
+  heroWeak?: boolean;
+  ctaWeak?: boolean;
+  trustWeak?: boolean;
+  trustDetected?: boolean;
+  visualFlags?: string[] | VisualOverlay[];
+  visualOverlays?: VisualOverlay[];
+  visualScores?: VisualScores;
+  aiFixes?: {
+    visualScores?: VisualScores;
+    visualOverlays?: VisualOverlay[];
+    analysisMode?: string;
+  };
+  analysisMode?: string;
+  visualTrustScore?: number;
+  ctaVisibilityScore?: number;
+  readabilityScore?: number;
+  mobileClarityScore?: number;
+  persuasionScore?: number;
 
   consultantFindings?: {
     issue: string;
@@ -62,7 +102,8 @@ export default function DashboardClient() {
   const [reportHistory, setReportHistory] =
     useState<AuditDataType[]>([]);
 
-  const [fixResult, setFixResult] = useState<any>(null);
+  const [fixResult, setFixResult] =
+    useState<{ fix?: string; result?: string } | null>(null);
 
   const [loadingFix, setLoadingFix] =
     useState(false);
@@ -102,7 +143,10 @@ export default function DashboardClient() {
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as {
+        fix?: string;
+        result?: string;
+      };
 
       setFixResult(data);
     } catch (err) {
@@ -111,6 +155,57 @@ export default function DashboardClient() {
       setLoadingFix(false);
     }
   };
+
+  const handleReportVisibilityChange = (
+    id: string,
+    isPublic: boolean
+  ) => {
+    setReportHistory((prev) =>
+      prev.map((report) =>
+        report.id === id ? { ...report, isPublic } : report
+      )
+    );
+
+    setAuditData((prev) =>
+      prev?.id === id ? { ...prev, isPublic } : prev
+    );
+  };
+
+  const handleReportDeleted = (id: string) => {
+    const nextHistory = reportHistory.filter(
+      (report) => report.id !== id
+    );
+
+    setReportHistory(nextHistory);
+
+    setAuditData((prev) =>
+      prev?.id === id ? nextHistory[0] || null : prev
+    );
+  };
+
+  const handleReportRestored = (report: AuditDataType) => {
+    setReportHistory((prev) => {
+      if (prev.some((item) => item.id === report.id)) {
+        return prev;
+      }
+
+      return [report, ...prev].sort((a, b) => {
+        const aTime = a.createdAt
+          ? new Date(a.createdAt).getTime()
+          : 0;
+        const bTime = b.createdAt
+          ? new Date(b.createdAt).getTime()
+          : 0;
+
+        return bTime - aTime;
+      });
+    });
+
+    setAuditData((prev) => prev || report);
+  };
+
+  const detectedIndustry = auditData?.industry || "General Business";
+  const industryConfidence = auditData?.industryConfidence ?? 0;
 
   return (
     <div className="min-h-screen flex relative overflow-hidden bg-transparent">
@@ -178,6 +273,25 @@ export default function DashboardClient() {
                             {auditData.confidence}%
                           </span>
                         </span>
+
+                        <span className="ml-0 mt-2 inline-flex sm:ml-2 sm:mt-0">
+                          <ConfidenceBadge
+                            confidence={auditData.confidence}
+                          />
+                        </span>
+
+                        <span className="mx-3 text-slate-300 hidden lg:inline">
+                          &bull;
+                        </span>
+
+                        <span className="block lg:inline mt-1 lg:mt-0">
+                          Detected Industry:
+
+                          <span className="font-semibold text-indigo-600 ml-2">
+                            {detectedIndustry} &bull; {industryConfidence}%
+                            confidence
+                          </span>
+                        </span>
                       </p>
                     </div>
                   </div>
@@ -185,20 +299,55 @@ export default function DashboardClient() {
 
                 {/* CONSULTANT INTRO */}
                 <div className="glass-card rounded-[28px] md:rounded-[32px] p-6 md:p-8 animate-fadeUp bg-white/75">
-                  <p className="section-label">
-                    AI Consultant Summary
-                  </p>
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <p className="section-label">
+                        AI Consultant Summary
+                      </p>
 
-                  <h3 className="text-2xl md:text-4xl font-bold text-slate-900 mt-3 leading-tight max-w-4xl">
-                    Conversion inefficiencies detected in key decision zones
-                  </h3>
+                      <div className="mt-3 inline-flex w-fit items-center rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">
+                        Detected Industry: {detectedIndustry} &bull;{" "}
+                        {industryConfidence}% confidence
+                      </div>
 
-                  <p className="section-copy mt-4 max-w-4xl text-[15px] leading-8">
-                    PageDoctor AI identified persuasion gaps, trust hesitation
-                    points and structural friction currently reducing visitor
-                    conversion likelihood.
-                  </p>
+                      <h3 className="text-2xl md:text-4xl font-bold text-slate-900 mt-3 leading-tight max-w-4xl">
+                        Conversion inefficiencies detected in key decision zones
+                      </h3>
+
+                      <p className="section-copy mt-4 max-w-4xl text-[15px] leading-8">
+                        PageDoctor AI identified persuasion gaps, trust hesitation
+                        points and structural friction currently reducing visitor
+                        conversion likelihood.
+                      </p>
+
+                      {auditData.summary && (
+                        <p className="mt-4 max-w-4xl rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-4 text-sm leading-7 text-slate-700">
+                          {auditData.summary}
+                        </p>
+                      )}
+                    </div>
+
+                    {auditData.id && (
+                      <div className="flex flex-wrap gap-3 shrink-0">
+                        <Link
+                          href={`/report/${auditData.id}`}
+                          className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-700"
+                        >
+                          View Public Report
+                        </Link>
+
+                        {(auditData.isPublic ?? true) && (
+                          <ShareReportButton
+                            path={`/report/${auditData.id}`}
+                            label="Copy Report Link"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                <AIAccuracyNotice auditData={auditData} />
 
                 {/* REVENUE */}
                 <RevenueEstimator auditData={auditData} />
@@ -229,7 +378,12 @@ export default function DashboardClient() {
 
             {/* HISTORY */}
             <div className="mt-14 md:mt-16 pb-10">
-              <RecentReports reportHistory={reportHistory} />
+              <RecentReports
+                reportHistory={reportHistory}
+                onReportVisibilityChange={handleReportVisibilityChange}
+                onReportDeleted={handleReportDeleted}
+                onReportRestored={handleReportRestored}
+              />
             </div>
           </div>
         </div>

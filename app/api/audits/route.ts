@@ -10,7 +10,7 @@ async function getAuthUserId() {
 
   const session = await getServerSession(authOptions);
 
-  return (session?.user as any)?.id || null;
+  return (session?.user as { id?: string } | undefined)?.id || null;
 }
 
 export async function GET() {
@@ -69,13 +69,27 @@ export async function POST(req: Request) {
         roadmap: body.roadmap || [],
         revenueNotes: body.revenueNotes || [],
         consultantFindings: body.consultantFindings || [],
+        visualFlags: body.visualFlags || body.visualOverlays || [],
+        aiFixes: body.aiFixes || {
+          visualScores: body.visualScores || {},
+          visualOverlays: body.visualOverlays || [],
+          analysisMode: body.analysisMode || "",
+        },
         quickWins: body.quickWins || {
           headlineFix: "",
           ctaFix: "",
           trustFix: "",
         },
         visualLabels: body.visualLabels || [],
+        industry: body.industry || null,
+        industryConfidence:
+          typeof body.industryConfidence === "number"
+            ? body.industryConfidence
+            : null,
+        industryReasons: body.industryReasons || [],
         screenshotUrl: body.screenshotUrl || "",
+        isPublic:
+          typeof body.isPublic === "boolean" ? body.isPublic : true,
         userId,
       },
     });
@@ -86,6 +100,62 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       { error: "Unable to save audit" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+
+    const userId = await getAuthUserId();
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const body = (await req.json()) as {
+      id?: string;
+      isPublic?: boolean;
+    };
+
+    if (!body.id || typeof body.isPublic !== "boolean") {
+      return NextResponse.json(
+        { error: "Missing report visibility details" },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.audit.updateMany({
+      where: {
+        id: body.id,
+        userId,
+      },
+      data: {
+        isPublic: body.isPublic,
+      },
+    });
+
+    if (updated.count === 0) {
+      return NextResponse.json(
+        { error: "Report not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      id: body.id,
+      isPublic: body.isPublic,
+    });
+  } catch (error) {
+    console.log("AUDITS PATCH ERROR:", error);
+
+    return NextResponse.json(
+      { error: "Unable to update report visibility" },
       { status: 500 }
     );
   }
