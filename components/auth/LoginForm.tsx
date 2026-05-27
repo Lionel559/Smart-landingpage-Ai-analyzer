@@ -36,10 +36,9 @@ export default function LoginForm() {
     } else {
       alert("Invalid login credentials");
     }
-  } catch (error) {
+  } catch {
     setLoading(false);
     alert("Login failed");
-    console.log(error);
   }
 };
 

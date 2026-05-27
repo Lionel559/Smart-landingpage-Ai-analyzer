@@ -130,7 +130,7 @@ export default function RevenueEstimator({ auditData }: Props) {
           </p>
 
           <p className="mt-5 leading-8 text-blue-50">
-            This is not only a traffic issue — it is a monetization efficiency
+            This is not only a traffic issue - it is a monetization efficiency
             problem inside the page itself. Improving messaging clarity and
             trust signals could significantly increase lead conversion rates.
           </p>

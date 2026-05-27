@@ -67,7 +67,7 @@ export async function getVisualScan(url: string) {
         urlLower.includes("finance"),
     };
   } catch (error) {
-    console.log("VISION SCAN ERROR:", error);
+    console.error("VISION SCAN ERROR:", error);
 
     return {
       screenshotUrl: "",

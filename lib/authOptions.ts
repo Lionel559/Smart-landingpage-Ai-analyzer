@@ -47,7 +47,7 @@ export const authOptions: NextAuthOptions = {
             dbId: user.id,
           } as any;
         } catch (error) {
-          console.log("AUTHORIZE ERROR:", error);
+          console.error("AUTHORIZE ERROR:", error);
           return null;
         }
       },

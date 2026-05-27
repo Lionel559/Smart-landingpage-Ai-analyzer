@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       feedback,
     });
   } catch (error) {
-    console.log("AUDIT FEEDBACK ERROR:", error);
+    console.error("AUDIT FEEDBACK ERROR:", error);
 
     return NextResponse.json(
       { error: "Unable to save feedback" },

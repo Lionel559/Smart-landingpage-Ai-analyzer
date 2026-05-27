@@ -16,6 +16,10 @@ export default function CTASection() {
         >
           Start Free Audit
         </a>
+
+        <p className="mx-auto mt-5 max-w-xl text-xs leading-6 text-gray-400">
+          AI audits are guidance and may not be 100% accurate.
+        </p>
       </div>
     </section>
   );

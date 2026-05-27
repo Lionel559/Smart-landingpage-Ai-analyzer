@@ -900,7 +900,7 @@ export async function generateAIAudit(scan: ScanPayload) {
       analysisMode: imageAttached ? "multimodal_vision" : "dom_only_ai",
     };
   } catch (error) {
-    console.log("AI AUDIT ERROR:", error);
+    console.error("AI AUDIT ERROR:", error);
     return fallbackResponse(scan, "vision_failed");
   }
 }

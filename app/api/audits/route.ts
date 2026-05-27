@@ -31,7 +31,7 @@ export async function GET() {
 
     return NextResponse.json(audits);
   } catch (error) {
-    console.log("AUDITS API ERROR:", error);
+    console.error("AUDITS API ERROR:", error);
     return NextResponse.json([]);
   }
 }
@@ -83,7 +83,7 @@ export async function PATCH(req: Request) {
       isPublic: body.isPublic,
     });
   } catch (error) {
-    console.log("AUDITS PATCH ERROR:", error);
+    console.error("AUDITS PATCH ERROR:", error);
 
     return NextResponse.json(
       { error: "Unable to update report visibility" },

@@ -61,6 +61,32 @@ const formatResetCountdown = (resetAt?: string | null) => {
   return `${Math.max(1, Math.ceil(diff / hourMs))}h`;
 };
 
+function ScanFailedState({ message }: { message: string }) {
+  return (
+    <div className="mt-5 rounded-[26px] border border-red-100 bg-red-50/80 p-5 shadow-sm">
+      <div className="flex gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-red-600 shadow-sm">
+          <AlertCircle size={18} />
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-red-600">
+            Scan Failed
+          </p>
+          <h3 className="mt-1 text-lg font-bold text-slate-900">
+            We could not complete this audit.
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            Try another public URL, check that the page is online, or upload a
+            screenshot instead.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AnalyzerBox({
   setAuditData,
   setReportHistory,
@@ -128,8 +154,7 @@ export default function AnalyzerBox({
       });
 
       return blob || file;
-    } catch (error) {
-      console.log("SCREENSHOT RESIZE ERROR:", error);
+    } catch {
       return file;
     } finally {
       if (objectUrl) {
@@ -157,9 +182,7 @@ export default function AnalyzerBox({
       if (Array.isArray(latest)) {
         setReportHistory(latest);
       }
-    } catch (error) {
-      console.log("HISTORY FETCH ERROR:", error);
-
+    } catch {
       setReportHistory((prev) => [data, ...prev.slice(0, 10)]);
     }
 
@@ -223,8 +246,6 @@ export default function AnalyzerBox({
 
       await hydrateAuditUI(data);
     } catch (error: unknown) {
-      console.log("SCAN ERROR:", error);
-
       if (isAbortError(error)) {
         setErrorMsg(
           "Audit timed out. Some websites are slow or block scanners."
@@ -295,8 +316,6 @@ export default function AnalyzerBox({
 
       await hydrateAuditUI(data);
     } catch (error: unknown) {
-      console.log("SCREENSHOT AUDIT ERROR:", error);
-
       if (isAbortError(error)) {
         setErrorMsg(
           "Screenshot audit timed out. Try a smaller screenshot or run a URL audit."
@@ -449,12 +468,7 @@ export default function AnalyzerBox({
                 </div>
               )}
 
-              {errorMsg && !limitError && (
-                <div className="mt-5 bg-red-50 border border-red-100 text-red-600 rounded-2xl px-4 py-4 text-sm flex gap-3 items-start">
-                  <AlertCircle size={17} className="mt-[1px]" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
+              {errorMsg && !limitError && <ScanFailedState message={errorMsg} />}
 
               {successMsg && (
                 <div className="mt-5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-2xl px-4 py-4 text-sm flex gap-3 items-start">

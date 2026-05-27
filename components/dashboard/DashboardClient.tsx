@@ -214,8 +214,8 @@ export default function DashboardClient({
         if (data.length > 0) {
           setAuditData(data[0]);
         }
-      } catch (error) {
-        console.log(error);
+      } catch {
+        setReportHistory([]);
       }
     };
 
@@ -243,8 +243,10 @@ export default function DashboardClient({
       };
 
       setFixResult(data);
-    } catch (err) {
-      console.log(err);
+    } catch {
+      setFixResult({
+        result: "Unable to generate a fix right now. Please try again.",
+      });
     } finally {
       setLoadingFix(false);
     }
@@ -356,12 +358,12 @@ export default function DashboardClient({
                         Estimated leakage range:
 
                         <span className="font-semibold text-slate-900 ml-2">
-                          {25 + auditData.critical * 3}%–
+                          {25 + auditData.critical * 3}%-
                           {40 + auditData.medium * 2}%
                         </span>
 
                         <span className="mx-3 text-slate-300 hidden sm:inline">
-                          •
+                          &bull;
                         </span>
 
                         <span className="block sm:inline mt-1 sm:mt-0">

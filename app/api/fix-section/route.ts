@@ -100,7 +100,7 @@ Return JSON:
 
     return NextResponse.json(JSON.parse(cleaned));
   } catch (err) {
-    console.log("FIX AI ERROR:", err);
+    console.error("FIX AI ERROR:", err);
 
     return NextResponse.json({
       fix: "Refactor this section with clearer messaging and stronger conversion intent.",

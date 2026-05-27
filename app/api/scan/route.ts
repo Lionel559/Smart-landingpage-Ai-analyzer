@@ -646,13 +646,13 @@ export async function POST(req: Request) {
       try {
         scan = (await scanWebsite(normalizedUrl)) as WebsiteScan | null;
       } catch (err) {
-        console.log("SCAN FAILED:", err);
+        console.error("SCAN FAILED:", err);
       }
 
       try {
         visual = (await getVisualScan(normalizedUrl)) as VisualScan | null;
       } catch (err) {
-        console.log("VISUAL FAILED:", err);
+        console.error("VISUAL FAILED:", err);
       }
     }
 
@@ -779,7 +779,7 @@ export async function POST(req: Request) {
             scansUsed: usage.scansUsed + 1,
           };
       } catch (usageRefreshError) {
-        console.log("SCAN USAGE REFRESH ERROR:", usageRefreshError);
+        console.error("SCAN USAGE REFRESH ERROR:", usageRefreshError);
 
         usageAfterAudit = {
           ...usage,
@@ -819,11 +819,11 @@ export async function POST(req: Request) {
       try {
         await refundFreeScanSlot(prismaForRefund, reservedUserId);
       } catch (refundError) {
-        console.log("SCAN LIMIT REFUND ERROR:", refundError);
+        console.error("SCAN LIMIT REFUND ERROR:", refundError);
       }
     }
 
-    console.log("SCAN ROUTE ERROR:", error);
+    console.error("SCAN ROUTE ERROR:", error);
 
     const message =
       error instanceof Error

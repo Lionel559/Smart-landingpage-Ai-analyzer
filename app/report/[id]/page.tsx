@@ -74,7 +74,7 @@ const getAudit = cache(async (id: string) => {
       where: { id },
     });
   } catch (error) {
-    console.log("PUBLIC REPORT FETCH ERROR:", error);
+    console.error("PUBLIC REPORT FETCH ERROR:", error);
     return null;
   }
 });
@@ -284,10 +284,12 @@ function StatePage({
   icon,
   title,
   copy,
+  actionLabel = "Visit PageDoctor AI",
 }: {
   icon: React.ReactNode;
   title: string;
   copy: string;
+  actionLabel?: string;
 }) {
   return (
     <main className="min-h-screen bg-[linear-gradient(135deg,#f8fafc_0%,#eef6ff_46%,#f7f7fb_100%)] px-5 py-10 text-slate-950">
@@ -306,7 +308,7 @@ function StatePage({
             href="/"
             className="mt-8 inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-700"
           >
-            Visit PageDoctor AI
+            {actionLabel}
             <ArrowUpRight size={16} />
           </Link>
         </div>
@@ -400,8 +402,9 @@ export default async function PublicReportPage({ params }: ReportPageProps) {
     return (
       <StatePage
         icon={<BarChart3 size={22} />}
-        title="Report not found."
-        copy="This audit report does not exist or may have been removed."
+        title="No public report found."
+        copy="This audit report does not exist, was deleted, or the link is no longer available."
+        actionLabel="Start a new audit"
       />
     );
   }

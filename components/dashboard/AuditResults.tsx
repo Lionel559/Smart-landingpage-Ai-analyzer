@@ -82,7 +82,6 @@ export default function AuditResults({ auditData }: Props) {
       setSuccessMsg("Thanks - your feedback helps improve future audits.");
       setComment("");
     } catch (error) {
-      console.log("AUDIT FEEDBACK SUBMIT ERROR:", error);
       setErrorMsg(
         error instanceof Error
           ? error.message
@@ -117,7 +116,7 @@ export default function AuditResults({ auditData }: Props) {
 
         <p className="text-gray-500 mt-2 max-w-3xl leading-7">
           Each issue below represents a measurable conversion friction point
-          identified during the scan. These are not generic suggestions — they
+          identified during the scan. These are not generic suggestions - they
           are behavior-linked revenue leaks.
         </p>
       </div>
@@ -291,7 +290,7 @@ export default function AuditResults({ auditData }: Props) {
                 {submitting && selectedRating === "helpful" ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
-                  "👍"
+                  <CheckCircle2 size={16} />
                 )}
                 Helpful
               </button>
@@ -306,7 +305,7 @@ export default function AuditResults({ auditData }: Props) {
                     : "border-slate-200 bg-slate-50 text-slate-700 hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                 }`}
               >
-                👎
+                <AlertTriangle size={16} />
                 Not Accurate
               </button>
             </div>

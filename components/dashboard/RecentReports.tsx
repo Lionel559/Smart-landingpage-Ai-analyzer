@@ -66,8 +66,6 @@ export default function RecentReports({
         setStatusMsg("");
       }, 2200);
     } catch (error) {
-      console.log("DELETE AUDIT ERROR:", error);
-
       onReportRestored?.(report);
 
       setErrorMsg(
@@ -123,12 +121,13 @@ export default function RecentReports({
             </div>
 
             <h4 className="mt-6 text-2xl font-bold text-slate-900">
-              Run your first audit to generate report history.
+              No audit history yet.
             </h4>
 
             <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-500">
-              Your completed audits will appear here with shareable public
-              report links, PDF-ready findings and history controls.
+              Run a URL audit or upload a screenshot above. Completed audits
+              will appear here with share links, PDF exports and history
+              controls.
             </p>
           </div>
         ) : (

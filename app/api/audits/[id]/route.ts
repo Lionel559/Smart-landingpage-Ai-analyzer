@@ -64,7 +64,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       deletedId: id,
     });
   } catch (error) {
-    console.log("AUDIT DELETE ERROR:", error);
+    console.error("AUDIT DELETE ERROR:", error);
 
     return NextResponse.json(
       { error: "Unable to delete audit" },

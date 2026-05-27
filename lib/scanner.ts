@@ -192,7 +192,7 @@ export async function scanWebsite(url: string) {
       bodyTextSnippet: bodyText.slice(0, 1500),
     };
   } catch (error) {
-    console.log("SCANNER ERROR:", error);
+    console.error("SCANNER ERROR:", error);
     return null;
   }
 }
