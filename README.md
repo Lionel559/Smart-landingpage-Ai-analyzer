@@ -10,14 +10,6 @@ PageDoctor AI is an AI-powered landing page audit platform that helps founders, 
 
 ![PageDoctor AI homepage](docs/screenshots/homepage.png)
 
-Recommended additional screenshots for a complete portfolio case study:
-
-| Screen | Suggested file |
-| --- | --- |
-| Homepage | `docs/screenshots/homepage.png` |
-| Dashboard audit flow | `docs/screenshots/dashboard.png` |
-| Public report page | `docs/screenshots/public-report.png` |
-| PDF export preview | `docs/screenshots/pdf-export.png` |
 
 ## Features
 
