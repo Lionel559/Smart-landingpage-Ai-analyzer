@@ -13,11 +13,20 @@ export async function POST(req: Request) {
     const password = body.password?.trim();
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const nameRegex = /^[A-Za-z\s]+$/;
 
     // VALIDATION
     if (!name || !email || !password) {
       return NextResponse.json(
         { error: "All fields are required" },
+        { status: 400 }
+      );
+    }
+
+    // NAME CHECK
+    if (!nameRegex.test(name)) {
+      return NextResponse.json(
+        { error: "Full name must contain letters only." },
         { status: 400 }
       );
     }

@@ -23,8 +23,15 @@ export default function RegisterForm() {
   const handleRegister = async () => {
     setErrorMsg("");
 
+    const nameRegex = /^[A-Za-z\s]+$/;
+
     if (!fullName.trim() || !email.trim() || !password.trim()) {
       setErrorMsg("Please complete all fields.");
+      return;
+    }
+
+    if (!nameRegex.test(fullName.trim())) {
+      setErrorMsg("Full name must contain letters only.");
       return;
     }
 
