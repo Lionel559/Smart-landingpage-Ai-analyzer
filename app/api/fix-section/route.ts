@@ -9,14 +9,56 @@ const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
 });
 
+type FixSectionRequest = {
+  label?: unknown;
+  url?: unknown;
+};
+
+async function getAuthUserId() {
+  const { getServerSession } = await import("next-auth");
+  const { authOptions } = await import("@/lib/authOptions");
+
+  const session = await getServerSession(authOptions);
+
+  return (session?.user as { id?: string } | undefined)?.id || null;
+}
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { label, url } = body;
+    const userId = await getAuthUserId();
 
-    if (!label) {
+    if (!userId) {
       return NextResponse.json(
-        { error: "Missing label" },
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const body = (await req.json().catch(() => null)) as
+      | FixSectionRequest
+      | null;
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 }
+      );
+    }
+
+    const label =
+      typeof body.label === "string" ? body.label.trim() : "";
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+
+    if (label.length < 3 || label.length > 500) {
+      return NextResponse.json(
+        { error: "Fix label must be between 3 and 500 characters" },
+        { status: 400 }
+      );
+    }
+
+    if (url.length > 2048) {
+      return NextResponse.json(
+        { error: "URL context is too long" },
         { status: 400 }
       );
     }
@@ -26,7 +68,10 @@ You are a CRO conversion expert.
 
 A landing page has this issue:
 
-"${label}"
+${JSON.stringify(label)}
+
+Page context:
+${url ? JSON.stringify(url) : "No URL context provided."}
 
 Your job:
 - Fix ONLY this specific problem

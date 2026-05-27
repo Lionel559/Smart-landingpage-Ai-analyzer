@@ -1,0 +1,1 @@
+ALTER TABLE "User" ADD COLUMN "lastScanReset" TIMESTAMP(3);

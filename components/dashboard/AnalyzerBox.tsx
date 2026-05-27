@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AuditDataType } from "@/components/dashboard/DashboardClient";
+import Link from "next/link";
+import type {
+  AuditDataType,
+  DashboardUsage,
+} from "@/components/dashboard/DashboardClient";
 import AuditLoader from "@/components/dashboard/AuditLoader";
 
 import {
@@ -11,22 +15,64 @@ import {
   ImagePlus,
   AlertCircle,
   CheckCircle2,
+  Clock3,
+  Crown,
 } from "lucide-react";
 
 type Props = {
   setAuditData: React.Dispatch<React.SetStateAction<AuditDataType | null>>;
   setReportHistory: React.Dispatch<React.SetStateAction<AuditDataType[]>>;
+  usage: DashboardUsage;
+  setUsage: React.Dispatch<React.SetStateAction<DashboardUsage>>;
+};
+
+type ScanResult = AuditDataType & {
+  error?: string;
+  usage?: DashboardUsage | null;
+};
+
+const LIMIT_ERROR = "Weekly free scan limit reached.";
+
+const formatResetCountdown = (resetAt?: string | null) => {
+  if (!resetAt) {
+    return "";
+  }
+
+  const resetTime = new Date(resetAt).getTime();
+  const diff = resetTime - Date.now();
+
+  if (!Number.isFinite(resetTime) || diff <= 0) {
+    return "soon";
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hourMs = 60 * 60 * 1000;
+  const days = Math.floor(diff / dayMs);
+  const hours = Math.ceil((diff % dayMs) / hourMs);
+
+  if (days > 0 && hours > 0) {
+    return `${days}d ${hours}h`;
+  }
+
+  if (days > 0) {
+    return `${days}d`;
+  }
+
+  return `${Math.max(1, Math.ceil(diff / hourMs))}h`;
 };
 
 export default function AnalyzerBox({
   setAuditData,
   setReportHistory,
+  usage,
+  setUsage,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [siteUrl, setSiteUrl] = useState("");
   const [loadingLabel, setLoadingLabel] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [limitError, setLimitError] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -92,7 +138,11 @@ export default function AnalyzerBox({
     }
   };
 
-  const hydrateAuditUI = async (data: AuditDataType) => {
+  const hydrateAuditUI = async (data: ScanResult) => {
+    if (data.usage) {
+      setUsage(data.usage);
+    }
+
     setAuditData(data);
 
     try {
@@ -115,6 +165,7 @@ export default function AnalyzerBox({
 
     setSiteUrl("");
     setErrorMsg("");
+    setLimitError(false);
 
     setSuccessMsg("Audit completed successfully.");
 
@@ -127,6 +178,7 @@ export default function AnalyzerBox({
     if (loading) return;
 
     if (!siteUrl.trim()) {
+      setLimitError(false);
       setErrorMsg("Please enter a landing page URL.");
       return;
     }
@@ -135,6 +187,7 @@ export default function AnalyzerBox({
 
     setErrorMsg("");
     setSuccessMsg("");
+    setLimitError(false);
     setLoading(true);
     setLoadingLabel(cleanUrl);
 
@@ -156,7 +209,13 @@ export default function AnalyzerBox({
         signal: controller.signal,
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as ScanResult;
+
+      if (res.status === 429 && data?.error === LIMIT_ERROR) {
+        setErrorMsg("");
+        setLimitError(true);
+        return;
+      }
 
       if (!res.ok || !data?.id) {
         throw new Error(data?.error || "Scan failed");
@@ -192,12 +251,14 @@ export default function AnalyzerBox({
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
+      setLimitError(false);
       setErrorMsg("Please upload a PNG, JPG, WebP or other image file.");
       return;
     }
 
     setErrorMsg("");
     setSuccessMsg("");
+    setLimitError(false);
     setLoading(true);
     setLoadingLabel(file.name);
 
@@ -220,7 +281,13 @@ export default function AnalyzerBox({
         signal: controller.signal,
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as ScanResult;
+
+      if (res.status === 429 && data?.error === LIMIT_ERROR) {
+        setErrorMsg("");
+        setLimitError(true);
+        return;
+      }
 
       if (!res.ok || !data?.id) {
         throw new Error(data?.error || "Screenshot audit failed");
@@ -252,6 +319,8 @@ export default function AnalyzerBox({
       }
     }
   };
+
+  const resetCountdown = formatResetCountdown(usage.resetAt);
 
   return (
     <>
@@ -343,7 +412,44 @@ export default function AnalyzerBox({
                 className="hidden"
               />
 
-              {errorMsg && (
+              {limitError && (
+                <div className="mt-5 rounded-[26px] border border-amber-200 bg-gradient-to-br from-white to-amber-50 p-5 shadow-[0_18px_50px_rgba(245,158,11,0.12)]">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex gap-3">
+                      <div className="h-11 w-11 shrink-0 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                        <Crown size={19} />
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] font-semibold text-amber-700">
+                          Free Plan Limit
+                        </p>
+
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">
+                          You have reached your free weekly audit limit.
+                        </h3>
+
+                        {resetCountdown && (
+                          <p className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+                            <Clock3 size={14} />
+                            Free audits reset in {resetCountdown}.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <Link
+                      href="/#pricing"
+                      className="primary-button inline-flex shrink-0 items-center justify-center gap-2 px-5 py-3 text-sm"
+                    >
+                      Upgrade
+                      <ArrowRight size={16} />
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {errorMsg && !limitError && (
                 <div className="mt-5 bg-red-50 border border-red-100 text-red-600 rounded-2xl px-4 py-4 text-sm flex gap-3 items-start">
                   <AlertCircle size={17} className="mt-[1px]" />
                   <span>{errorMsg}</span>

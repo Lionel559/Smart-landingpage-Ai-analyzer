@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Audit, PrismaClient } from "@prisma/client";
 import { scanWebsite } from "@/lib/scanner";
 import { getVisualScan } from "@/lib/visionScan";
 import { generateAIAudit } from "@/lib/aiAudit";
@@ -8,12 +9,24 @@ import {
   type WebsiteIndustry,
   type WebsiteIndustryDetection,
 } from "@/lib/industryDetection";
+import { validateScanUrl } from "@/lib/validateScanUrl";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
 const MAX_UPLOAD_BYTES = 7 * 1024 * 1024;
+const FREE_WEEKLY_SCAN_LIMIT = 2;
+const SCAN_RESET_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const LIMIT_ERROR = "Weekly free scan limit reached.";
+
+const scanUsageSelect = {
+  id: true,
+  plan: true,
+  scansUsed: true,
+  lastScanReset: true,
+  planExpiresAt: true,
+} as const;
 
 type ScanRequest = {
   url: string;
@@ -98,6 +111,21 @@ type VisualScan = {
   fintechLikely?: boolean;
 };
 
+type ScanUsageRecord = {
+  id: string;
+  plan: string;
+  scansUsed: number;
+  lastScanReset: Date | null;
+  planExpiresAt: Date | null;
+};
+
+type ScanUsagePayload = {
+  plan: string;
+  scansUsed: number;
+  limit: number | null;
+  resetAt: string | null;
+};
+
 class ScanRequestError extends Error {
   status: number;
 
@@ -126,6 +154,92 @@ const safeVisualScores = (ai?: AiAuditResult) => ({
   mobileClarityScore: clamp(ai?.mobileClarityScore || 62),
   persuasionScore: clamp(ai?.persuasionScore || 58),
 });
+
+const isFreePlan = (plan?: string | null) =>
+  (plan || "free").toLowerCase() === "free";
+
+const shouldResetScanUsage = (lastScanReset: Date | null, now: Date) =>
+  !lastScanReset ||
+  now.getTime() - lastScanReset.getTime() >= SCAN_RESET_INTERVAL_MS;
+
+const getResetAt = (lastScanReset: Date | null, now: Date) =>
+  new Date((lastScanReset || now).getTime() + SCAN_RESET_INTERVAL_MS);
+
+const buildUsagePayload = (
+  usage: ScanUsageRecord,
+  now = new Date()
+): ScanUsagePayload => {
+  const free = isFreePlan(usage.plan);
+
+  return {
+    plan: usage.plan,
+    scansUsed: usage.scansUsed,
+    limit: free ? FREE_WEEKLY_SCAN_LIMIT : null,
+    resetAt: free ? getResetAt(usage.lastScanReset, now).toISOString() : null,
+  };
+};
+
+async function getFreshScanUsage(
+  prisma: PrismaClient,
+  userId: string,
+  now = new Date()
+): Promise<ScanUsageRecord | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: scanUsageSelect,
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  if (!shouldResetScanUsage(user.lastScanReset, now)) {
+    return user;
+  }
+
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      scansUsed: 0,
+      lastScanReset: now,
+    },
+    select: scanUsageSelect,
+  });
+}
+
+async function reserveFreeScanSlot(prisma: PrismaClient, userId: string) {
+  const reserved = await prisma.user.updateMany({
+    where: {
+      id: userId,
+      scansUsed: {
+        lt: FREE_WEEKLY_SCAN_LIMIT,
+      },
+    },
+    data: {
+      scansUsed: {
+        increment: 1,
+      },
+    },
+  });
+
+  return reserved.count > 0;
+}
+
+async function refundFreeScanSlot(prisma: PrismaClient, userId: string) {
+  await prisma.user.updateMany({
+    where: {
+      id: userId,
+      scansUsed: {
+        gt: 0,
+      },
+    },
+    data: {
+      scansUsed: {
+        decrement: 1,
+      },
+    },
+  });
+}
 
 const industryScoreWeights: Record<WebsiteIndustry, ScoreWeights> = {
   SaaS: {
@@ -214,34 +328,16 @@ const industryScoreWeights: Record<WebsiteIndustry, ScoreWeights> = {
   },
 };
 
-function normalizeUrl(url: string) {
-  const trimmed = (url || "").trim();
-
-  if (!trimmed) {
-    return "";
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
-  }
-
-  if (trimmed.includes(".") && !trimmed.startsWith("Uploaded screenshot:")) {
-    return `https://${trimmed}`;
-  }
-
-  return trimmed;
-}
-
-function isHttpUrl(url: string) {
-  return url.startsWith("http://") || url.startsWith("https://");
-}
-
 function isImageUrl(url: string) {
-  return (
-    url.startsWith("data:image/") ||
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  );
+  if (url.startsWith("data:image/")) {
+    return true;
+  }
+
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return validateScanUrl(url).ok;
+  }
+
+  return false;
 }
 
 async function dataUrlFromFile(file: FormDataEntryValue | null) {
@@ -479,10 +575,16 @@ function buildScanPayload({
 }
 
 export async function POST(req: Request) {
+  let reservedFreeScan = false;
+  let reservedUserId = "";
+  let prismaForRefund: PrismaClient | null = null;
+
   try {
     const { getServerSession } = await import("next-auth");
     const { authOptions } = await import("@/lib/authOptions");
     const { prisma } = await import("@/lib/prisma");
+
+    prismaForRefund = prisma;
 
     const session = await getServerSession(authOptions);
     const user = session?.user as { id?: string } | undefined;
@@ -493,8 +595,18 @@ export async function POST(req: Request) {
     }
 
     const input = await readScanRequest(req);
-    const normalizedUrl = normalizeUrl(input.url);
-    const hasHttpTarget = isHttpUrl(normalizedUrl);
+    const requestedUrl = input.url.trim();
+    const urlValidation = requestedUrl ? validateScanUrl(requestedUrl) : null;
+
+    if (urlValidation && !urlValidation.ok) {
+      return NextResponse.json(
+        { error: urlValidation.error },
+        { status: 400 }
+      );
+    }
+
+    const normalizedUrl = urlValidation?.ok ? urlValidation.url : "";
+    const hasHttpTarget = Boolean(urlValidation?.ok);
     const hasScreenshot = isImageUrl(input.screenshotUrl);
 
     if (!hasHttpTarget && !hasScreenshot) {
@@ -502,6 +614,29 @@ export async function POST(req: Request) {
         { error: "Please provide a landing page URL or upload a screenshot." },
         { status: 400 }
       );
+    }
+
+    const usage = await getFreshScanUsage(prisma, userId);
+
+    if (!usage) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const freePlan = isFreePlan(usage.plan);
+
+    if (freePlan && usage.scansUsed >= FREE_WEEKLY_SCAN_LIMIT) {
+      return NextResponse.json({ error: LIMIT_ERROR }, { status: 429 });
+    }
+
+    if (freePlan) {
+      const reserved = await reserveFreeScanSlot(prisma, userId);
+
+      if (!reserved) {
+        return NextResponse.json({ error: LIMIT_ERROR }, { status: 429 });
+      }
+
+      reservedFreeScan = true;
+      reservedUserId = userId;
     }
 
     let scan: WebsiteScan | null = null;
@@ -595,36 +730,81 @@ export async function POST(req: Request) {
       analysisMode: ai?.analysisMode || "dom_fallback",
     };
 
-    const savedAudit = await prisma.audit.create({
-      data: {
-        siteUrl: siteLabel,
-        seo: baseScores.seo,
-        ux: baseScores.ux,
-        cta: baseScores.cta,
-        trust: baseScores.trust,
-        mobile: baseScores.mobile,
-        health,
-        critical,
-        medium,
-        minor,
-        confidence,
-        findings,
-        summary: ai?.summary || "AI summary unavailable",
-        roadmap: safeArray<string>(ai?.roadmap),
-        revenueNotes: safeArray<string>(ai?.revenueNotes),
-        consultantFindings,
-        quickWins: safeQuickWins(ai?.quickWins),
-        visualLabels: safeArray<string>(ai?.visualLabels),
-        visualFlags: visualOverlays,
-        aiFixes,
-        screenshotUrl: screenshot,
-        industry: industryData.industry,
-        industryConfidence: industryData.confidence,
-        industryReasons: industryData.reasons,
-        isPublic: true,
-        userId,
-      },
-    });
+    const auditData = {
+      siteUrl: siteLabel,
+      seo: baseScores.seo,
+      ux: baseScores.ux,
+      cta: baseScores.cta,
+      trust: baseScores.trust,
+      mobile: baseScores.mobile,
+      health,
+      critical,
+      medium,
+      minor,
+      confidence,
+      findings,
+      summary: ai?.summary || "AI summary unavailable",
+      roadmap: safeArray<string>(ai?.roadmap),
+      revenueNotes: safeArray<string>(ai?.revenueNotes),
+      consultantFindings,
+      quickWins: safeQuickWins(ai?.quickWins),
+      visualLabels: safeArray<string>(ai?.visualLabels),
+      visualFlags: visualOverlays,
+      aiFixes,
+      screenshotUrl: screenshot,
+      industry: industryData.industry,
+      industryConfidence: industryData.confidence,
+      industryReasons: industryData.reasons,
+      isPublic: true,
+      userId,
+    };
+
+    let savedAudit: Audit;
+    let usageAfterAudit: ScanUsageRecord | null = null;
+
+    if (freePlan) {
+      savedAudit = await prisma.audit.create({
+        data: auditData,
+      });
+
+      reservedFreeScan = false;
+
+      try {
+        usageAfterAudit =
+          (await prisma.user.findUnique({
+            where: { id: userId },
+            select: scanUsageSelect,
+          })) || {
+            ...usage,
+            scansUsed: usage.scansUsed + 1,
+          };
+      } catch (usageRefreshError) {
+        console.log("SCAN USAGE REFRESH ERROR:", usageRefreshError);
+
+        usageAfterAudit = {
+          ...usage,
+          scansUsed: usage.scansUsed + 1,
+        };
+      }
+    } else {
+      const [audit, updatedUsage] = await prisma.$transaction([
+        prisma.audit.create({
+          data: auditData,
+        }),
+        prisma.user.update({
+          where: { id: userId },
+          data: {
+            scansUsed: {
+              increment: 1,
+            },
+          },
+          select: scanUsageSelect,
+        }),
+      ]);
+
+      savedAudit = audit;
+      usageAfterAudit = updatedUsage;
+    }
 
     return NextResponse.json({
       ...savedAudit,
@@ -632,15 +812,23 @@ export async function POST(req: Request) {
       visualScores,
       visualOverlays,
       analysisMode: aiFixes.analysisMode,
+      usage: usageAfterAudit ? buildUsagePayload(usageAfterAudit) : null,
     });
   } catch (error: unknown) {
+    if (reservedFreeScan && prismaForRefund && reservedUserId) {
+      try {
+        await refundFreeScanSlot(prismaForRefund, reservedUserId);
+      } catch (refundError) {
+        console.log("SCAN LIMIT REFUND ERROR:", refundError);
+      }
+    }
+
     console.log("SCAN ROUTE ERROR:", error);
 
     const message =
       error instanceof Error
         ? error.message
-        :
-      "Scan failed. Please try another page or screenshot.";
+        : "Scan failed. Please try another page or screenshot.";
 
     return NextResponse.json(
       { error: message },

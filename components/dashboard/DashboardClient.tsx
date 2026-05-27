@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Clock3, Crown, Gauge } from "lucide-react";
 
 import Sidebar from "@/components/dashboard/Sidebar";
 import Topbar from "@/components/dashboard/Topbar";
@@ -95,7 +96,100 @@ export type AuditDataType = {
   visualLabels?: string[];
 };
 
-export default function DashboardClient() {
+export type DashboardUsage = {
+  plan: string;
+  scansUsed: number;
+  limit: number | null;
+  resetAt: string | null;
+};
+
+type DashboardClientProps = {
+  initialUsage: DashboardUsage;
+};
+
+const formatResetCountdown = (resetAt?: string | null) => {
+  if (!resetAt) {
+    return "";
+  }
+
+  const resetTime = new Date(resetAt).getTime();
+  const diff = resetTime - Date.now();
+
+  if (!Number.isFinite(resetTime) || diff <= 0) {
+    return "soon";
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hourMs = 60 * 60 * 1000;
+  const days = Math.floor(diff / dayMs);
+  const hours = Math.ceil((diff % dayMs) / hourMs);
+
+  if (days > 0 && hours > 0) {
+    return `${days}d ${hours}h`;
+  }
+
+  if (days > 0) {
+    return `${days}d`;
+  }
+
+  return `${Math.max(1, Math.ceil(diff / hourMs))}h`;
+};
+
+function UsageStrip({ usage }: { usage: DashboardUsage }) {
+  const isFree = usage.plan.toLowerCase() === "free";
+  const limit = usage.limit || 0;
+  const used = isFree ? Math.min(usage.scansUsed, limit) : usage.scansUsed;
+  const progress = isFree && limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
+  const resetCountdown = formatResetCountdown(usage.resetAt);
+
+  return (
+    <div className="glass-card rounded-[24px] px-5 py-4 bg-white/80 animate-fadeUp">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-4">
+          <div className="h-11 w-11 shrink-0 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+            {isFree ? <Gauge size={18} /> : <Crown size={18} />}
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.14em] font-semibold text-blue-600">
+              Weekly Usage
+            </p>
+
+            <p className="mt-1 text-base font-semibold text-slate-900">
+              {isFree
+                ? `${used} of ${limit} free audits used this week`
+                : `Unlimited audits active on ${usage.plan}`}
+            </p>
+
+            {isFree && resetCountdown && (
+              <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                <Clock3 size={14} />
+                Resets in {resetCountdown}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {isFree && (
+          <div className="w-full lg:w-[280px]">
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function DashboardClient({
+  initialUsage,
+}: DashboardClientProps) {
+  const [usage, setUsage] = useState(initialUsage);
+
   const [auditData, setAuditData] =
     useState<AuditDataType | null>(null);
 
@@ -224,11 +318,15 @@ export default function DashboardClient() {
             {/* TOPBAR */}
             <Topbar />
 
+            <UsageStrip usage={usage} />
+
             {/* ANALYZER */}
             <div className="mt-6 md:mt-8">
               <AnalyzerBox
                 setAuditData={setAuditData}
                 setReportHistory={setReportHistory}
+                usage={usage}
+                setUsage={setUsage}
               />
             </div>
 

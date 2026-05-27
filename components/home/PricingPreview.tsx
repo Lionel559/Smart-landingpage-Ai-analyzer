@@ -1,7 +1,7 @@
 const plans = [
   {
     name: "Free",
-    desc: "2 smart audits every month",
+    desc: "2 smart audits every week",
     price: "$0",
   },
   {

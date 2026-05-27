@@ -17,6 +17,7 @@ model User {
   provider      String?
   plan          String   @default("free")
   scansUsed     Int      @default(0)
+  lastScanReset DateTime?
   planExpiresAt DateTime?
   createdAt     DateTime @default(now())
 
